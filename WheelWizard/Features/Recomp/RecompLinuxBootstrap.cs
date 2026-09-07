@@ -4,8 +4,8 @@ using WheelWizard.Settings;
 namespace WheelWizard.Recomp;
 
 /// <summary>
-/// First-run Linux convenience: if a native WiiCompiled install is already on disk, point Wheel Wizard
-/// at that game image and turn on the WiiCompiled launcher so Play does not start on Dolphin.
+/// First-run Linux convenience: this fork is WiiCompiled-first. A brand-new config enables the
+/// native launcher, and a dump already sitting in <c>WiiCompiled/rom</c> is pointed at automatically.
 /// </summary>
 public static class RecompLinuxBootstrap
 {
@@ -25,9 +25,7 @@ public static class RecompLinuxBootstrap
                 settings.Set(settings.GAME_LOCATION, gameImage);
         }
 
-        if (File.Exists(PathManager.WheelWizardConfigFilePath) || !RecompLinuxPaths.HasNativeInstall)
-            return;
-
-        settings.Set(settings.ENABLE_RECOMP, true);
+        if (!File.Exists(PathManager.WheelWizardConfigFilePath))
+            settings.Set(settings.ENABLE_RECOMP, true);
     }
 }

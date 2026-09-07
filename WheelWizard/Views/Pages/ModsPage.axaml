@@ -6,7 +6,6 @@
              xmlns:components="clr-namespace:WheelWizard.Views.Components"
              xmlns:patterns="clr-namespace:WheelWizard.Views.Patterns"
              xmlns:pages="clr-namespace:WheelWizard.Views.Pages"
-             xmlns:patches="clr-namespace:WheelWizard.Features.Patches"
              mc:Ignorable="d" d:DesignWidth="450" d:DesignHeight="876"
              x:Class="WheelWizard.Views.Pages.ModsPage"
              x:DataType="pages:ModsPage">
@@ -41,8 +40,14 @@
         <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" x:Name="PageWithoutMods"
                     IsVisible="{Binding HasMods, Converter={x:Static BoolConverters.Not}}">
             <components:EmptyPageInfo Title="{loc:T empty_content.no_mods_title}"
-                                      BodyText="{loc:T empty_content.no_mods}"
+                                      BodyText="{Binding EmptyModsBody}"
                                       HorizontalAlignment="Center" />
+            <TextBlock Text="{Binding LauncherCompatibilityNote}"
+                       Classes="TinyText"
+                       TextWrapping="Wrap"
+                       TextAlignment="Center"
+                       MaxWidth="420"
+                       Margin="0,8,0,0" />
             <UniformGrid Margin="0,12" Columns="2" Rows="1">
                 <components:Button Variant="Primary" Margin="3,0"
                                    Text="{loc:T action.browse}" IconData="{StaticResource Search}"
@@ -86,9 +91,15 @@
                            SelectionChanged="SortByDropdown_OnSelectionChanged" />
              </StackPanel> -->
 
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Margin="0,6">
-                    <components:FormFieldLabel Text="Mods" />
-                    <components:StateBox Text="0" IconSize="0" x:Name="ListItemCount" />
+                <StackPanel Orientation="Vertical" VerticalAlignment="Bottom" Margin="0,6" Spacing="4">
+                    <StackPanel Orientation="Horizontal">
+                        <components:FormFieldLabel Text="Mods" />
+                        <components:StateBox Text="0" IconSize="0" x:Name="ListItemCount" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding LauncherCompatibilityNote}"
+                               Classes="TinyText"
+                               TextWrapping="Wrap"
+                               MaxWidth="640" />
                 </StackPanel>
                 <Border Background="{StaticResource BackgroundLineColor}" Height="1" HorizontalAlignment="Stretch"
                         VerticalAlignment="Bottom" />
@@ -131,33 +142,21 @@
                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
                                 <TextBlock Text="{Binding Mod.Title}" FontSize="14"
                                            Foreground="{StaticResource Neutral100}"
-                                           Grid.Column="2" VerticalAlignment="Center" Margin="10,0,0,0" />
-
-                                <Border Width="34"
-                                        Height="14"
-                                        CornerRadius="3"
-                                        Background="{StaticResource Danger500}"
-                                        HorizontalAlignment="Right"
-                                        VerticalAlignment="Top"
-                                        IsVisible="{Binding Mod.HasIncompatibleFiles}"
-                                        ToolTip.Placement="Top">
-                                    <ToolTip.Tip>
-                                        <StackPanel MaxWidth="300">
-                                            <TextBlock Text="{x:Static patches:ModPatchCompatibilityText.IncompatibleTitle}"
-                                                       FontWeight="Bold"
-                                                       Foreground="{StaticResource Neutral50}" />
-                                            <TextBlock Text="{x:Static patches:ModPatchCompatibilityText.IncompatibleMessage}"
-                                                       TextWrapping="Wrap"
-                                                       Foreground="{StaticResource Neutral100}" />
-                                        </StackPanel>
-                                    </ToolTip.Tip>
-                                </Border>
+                                           TextTrimming="CharacterEllipsis"
+                                           Grid.Column="2" VerticalAlignment="Center" Margin="10,0,8,0" />
 
                                 <!-- Yes i know that it already works without any change event if we remove Mode=OneWay -->
                                 <!-- Removing that will make it so editing that will also edit the model -->
                                 <!-- however, it works really weird if you do that -->
                                 <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right"
                                             VerticalAlignment="Center">
+                                    <components:StateBox Text="{Binding CompatibilityLabel}"
+                                                         Variant="{Binding CompatibilityVariant}"
+                                                         TipText="{Binding CompatibilityTip}"
+                                                         TipPlacement="Top"
+                                                         IconSize="0"
+                                                         FontSize="11"
+                                                         Margin="0,0,10,0" />
                                     <TextBlock Text="{loc:T attribute.priority}" FontSize="14"
                                                Foreground="{StaticResource Neutral100}"
                                                VerticalAlignment="Center" Margin="10,0,0,0" />

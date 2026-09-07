@@ -1,6 +1,5 @@
 using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
-using WheelWizard.Features.Archives;
 using WheelWizard.Helpers;
 using WheelWizard.Models.Mods;
 using WheelWizard.Services;
@@ -12,6 +11,30 @@ public static class ModPatchCompatibilityText
 {
     public static string IncompatibleTitle => t("patch.incompatible_mod.title");
     public static string IncompatibleMessage => t("patch.incompatible_mod.message");
+}
+
+/// <summary>
+/// WiiCompiled only loads Pulsar patch archives. Loose Dolphin-style SZS/BRSAR trees stay
+/// Dolphin-only until the user converts them to patches.
+/// </summary>
+public static class ModLauncherCompatibility
+{
+    public static bool WorksWithWiiCompiled(Mod mod) => !mod.HasIncompatibleFiles;
+
+    public static string Label(Mod mod) => WorksWithWiiCompiled(mod) ? t("patch.launcher.both") : t("patch.launcher.dolphin_only");
+
+    public static string Tip(Mod mod) => WorksWithWiiCompiled(mod) ? t("patch.launcher.both_tip") : t("patch.launcher.dolphin_only_tip");
+
+    public static string PageNote(bool recompMode) => recompMode ? t("patch.launcher.note_recomp") : t("patch.launcher.note_dolphin");
+
+    public static string BrowserLabel(bool usesPatches) => usesPatches ? t("patch.launcher.both") : t("patch.launcher.dolphin_only");
+
+    public static string BrowserTip(bool usesPatches) => usesPatches ? t("patch.launcher.both_tip") : t("patch.launcher.dolphin_only_tip");
+
+    public static string BrowserNote(bool usesPatches, bool recompMode) =>
+        usesPatches ? t("patch.launcher.browser_note_patches")
+        : recompMode ? t("patch.launcher.browser_note_dolphin_recomp")
+        : t("patch.launcher.browser_note_dolphin");
 }
 
 public interface IModPatchConversionService
@@ -76,8 +99,6 @@ public sealed class ModPatchConversionService(ISzsPatchConverter szsPatchConvert
                     var skipped = new List<string>();
                     var convertedCount = 0;
                     var writtenPatchCount = 0;
-                    var archiveBundles = new Dictionary<string, Dictionary<string, byte[]>>(StringComparer.OrdinalIgnoreCase);
-                    var archivePrefix = SanitizeArchivePrefix(mod.Title);
 
                     for (var index = 0; index < tempFiles.Count; index++)
                     {
@@ -93,13 +114,7 @@ public sealed class ModPatchConversionService(ISzsPatchConverter szsPatchConvert
 
                         if (LooseBrsarPatchFileName.TryGetNormalizedFileName(fileName, out var normalizedPatchFileName))
                         {
-                            AddArchiveBundleEntry(
-                                archiveBundles,
-                                Path.Combine(Path.GetDirectoryName(file)!, $"{archivePrefix}.revo_kart.szs"),
-                                normalizedPatchFileName,
-                                File.ReadAllBytes(file)
-                            );
-                            File.Delete(file);
+                            writtenPatchCount += WriteLoosePatchFile(file, normalizedPatchFileName, File.ReadAllBytes(file));
                             convertedCount++;
                             continue;
                         }
@@ -124,44 +139,32 @@ public sealed class ModPatchConversionService(ISzsPatchConverter szsPatchConvert
                         if (conversion.Analysis.Skipped.Count > 0)
                             continue;
 
-                        if (TryGetBundleTarget(conversion.Analysis, out var bundleTarget))
+                        if (conversion.Analysis.Entries.Count == 0)
                         {
-                            var bundleDestination = Path.Combine(Path.GetDirectoryName(file)!, $"{archivePrefix}.{bundleTarget}.szs");
-                            foreach (var entry in conversion.Analysis.Entries)
-                            {
-                                if (IsDeletionPatchEntry(entry))
-                                {
-                                    var deletionDestination = Path.Combine(Path.GetDirectoryName(file)!, entry.ExportPath);
-                                    Directory.CreateDirectory(Path.GetDirectoryName(deletionDestination)!);
-                                    File.WriteAllBytes(deletionDestination, entry.Bytes);
-                                    writtenPatchCount++;
-                                    continue;
-                                }
-
-                                var memberPath = string.Equals(conversion.Analysis.Mode, "brsar", StringComparison.OrdinalIgnoreCase)
-                                    ? entry.ExportPath
-                                    : entry.LogicalPath;
-                                AddArchiveBundleEntry(archiveBundles, bundleDestination, memberPath, entry.Bytes);
-                            }
-                        }
-                        else
-                        {
-                            foreach (var entry in conversion.Analysis.Entries)
-                            {
-                                var destination = Path.Combine(Path.GetDirectoryName(file)!, entry.ExportPath);
-                                var destinationDirectory = Path.GetDirectoryName(destination)!;
-                                if (!Directory.Exists(destinationDirectory))
-                                    Directory.CreateDirectory(destinationDirectory);
-                                File.WriteAllBytes(destination, entry.Bytes);
-                                writtenPatchCount++;
-                            }
+                            skipped.Add($"{fileName}: {t("warning.no_szs_differences")}");
+                            continue;
                         }
 
-                        File.Delete(file);
+                        if (ShouldWriteWholeFileOverride(conversion))
+                        {
+                            var archiveTag = conversion.Analysis.ArchiveTag;
+                            if (string.IsNullOrWhiteSpace(archiveTag))
+                            {
+                                skipped.Add(t("warning.file_not_in_built_in_baseline", fileName)!);
+                                continue;
+                            }
+
+                            warnings.Add($"{fileName}: {t("warning.converted_large_archive_as_whole_file")}");
+                            writtenPatchCount += WriteLoosePatchFile(file, $"{archiveTag}.szs", conversion.SourceBytes);
+                            convertedCount++;
+                            continue;
+                        }
+
+                        foreach (var entry in conversion.Analysis.Entries)
+                            writtenPatchCount += WriteLoosePatchFile(file, Path.GetFileName(entry.ExportPath), entry.Bytes);
+
                         convertedCount++;
                     }
-
-                    writtenPatchCount += WriteArchiveBundles(archiveBundles, warnings);
 
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -209,13 +212,13 @@ public sealed class ModPatchConversionService(ISzsPatchConverter szsPatchConvert
             var fileBytes = File.ReadAllBytes(file);
             var baseline = SelectBaseline(Path.GetFileName(file), fileBytes);
             if (baseline == null)
-                return new ArchiveConversion(null, new PatchConversionAnalysis());
+                return new ArchiveConversion(null, new PatchConversionAnalysis(), fileBytes);
 
             var analysisResult = AnalyzeArchive(baseline, Path.GetFileName(file), fileBytes);
             if (analysisResult.IsFailure)
                 return analysisResult.Error;
 
-            return new ArchiveConversion(baseline, analysisResult.Value);
+            return new ArchiveConversion(baseline, analysisResult.Value, fileBytes);
         }
         catch (Exception ex)
         {
@@ -276,71 +279,26 @@ public sealed class ModPatchConversionService(ISzsPatchConverter szsPatchConvert
 
     private static bool IsBrsarFileName(string fileName) => fileName.Equals("revo_kart.brsar", StringComparison.OrdinalIgnoreCase);
 
-    private static bool TryGetBundleTarget(PatchConversionAnalysis analysis, out string bundleTarget)
+    private const int WholeFileOverrideByteThreshold = 256 * 1024;
+
+    private static bool ShouldWriteWholeFileOverride(ArchiveConversion conversion)
     {
-        bundleTarget = string.Empty;
-
-        if (string.Equals(analysis.Mode, "brsar", StringComparison.OrdinalIgnoreCase))
-        {
-            bundleTarget = "revo_kart";
-            return true;
-        }
-
-        if (
-            !string.Equals(analysis.Mode, "tagged-archive", StringComparison.OrdinalIgnoreCase)
-            || string.IsNullOrWhiteSpace(analysis.ArchiveTag)
-        )
-        {
+        if (!string.Equals(conversion.Analysis.Mode, "tagged-archive", StringComparison.OrdinalIgnoreCase))
             return false;
-        }
 
-        bundleTarget = SanitizeArchivePrefix(analysis.ArchiveTag);
-        return true;
+        var replacementBytes = conversion.Analysis.Entries.Where(entry => entry.Bytes.Length > 0).Sum(entry => (long)entry.Bytes.Length);
+        return replacementBytes >= WholeFileOverrideByteThreshold;
     }
 
-    private static bool IsDeletionPatchEntry(PatchConversionEntry entry) =>
-        entry.Bytes.Length == 0 && entry.LogicalPath.EndsWith(".delete", StringComparison.OrdinalIgnoreCase);
-
-    private static void AddArchiveBundleEntry(
-        Dictionary<string, Dictionary<string, byte[]>> archiveBundles,
-        string bundlePath,
-        string memberPath,
-        byte[] bytes
-    )
+    private static int WriteLoosePatchFile(string sourceFile, string patchFileName, byte[] bytes)
     {
-        if (!archiveBundles.TryGetValue(bundlePath, out var members))
-        {
-            members = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-            archiveBundles[bundlePath] = members;
-        }
+        var destination = Path.Combine(Path.GetDirectoryName(sourceFile)!, patchFileName);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        if (!Path.GetFullPath(destination).Equals(Path.GetFullPath(sourceFile), StringComparison.OrdinalIgnoreCase))
+            File.Delete(sourceFile);
 
-        if (members.TryGetValue(memberPath, out var existingBytes) && existingBytes.SequenceEqual(bytes))
-            return;
-
-        members[memberPath] = bytes;
-    }
-
-    private static int WriteArchiveBundles(Dictionary<string, Dictionary<string, byte[]>> archiveBundles, List<string> warnings)
-    {
-        var writtenCount = 0;
-
-        foreach (var (bundlePath, members) in archiveBundles.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
-        {
-            if (members.Count == 0)
-                continue;
-
-            Directory.CreateDirectory(Path.GetDirectoryName(bundlePath)!);
-            if (File.Exists(bundlePath))
-            {
-                warnings.Add($"{Path.GetFileName(bundlePath)} already existed and was replaced with the converted archive bundle.");
-                File.Delete(bundlePath);
-            }
-
-            File.WriteAllBytes(bundlePath, U8ArchiveBuilder.BuildYaz0(members));
-            writtenCount++;
-        }
-
-        return writtenCount;
+        File.WriteAllBytes(destination, bytes);
+        return 1;
     }
 
     private static bool IsModdingArchiveFile(string fileName)
@@ -351,15 +309,6 @@ public sealed class ModPatchConversionService(ISzsPatchConverter szsPatchConvert
         var nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
         var tagSeparator = nameWithoutExtension.LastIndexOf('.');
         return tagSeparator > 0 && tagSeparator + 1 < nameWithoutExtension.Length;
-    }
-
-    private static string SanitizeArchivePrefix(string value)
-    {
-        var cleaned = new string(
-            value.Select(character => char.IsLetterOrDigit(character) || character is '_' or '-' ? character : '_').ToArray()
-        ).Trim('_');
-
-        return string.IsNullOrWhiteSpace(cleaned) ? "mod" : cleaned;
     }
 
     private static void CopyDirectory(string sourceDirectory, string destinationDirectory, CancellationToken cancellationToken)
@@ -401,5 +350,5 @@ public sealed class ModPatchConversionService(ISzsPatchConverter szsPatchConvert
         }
     }
 
-    private sealed record ArchiveConversion(BaselineEntry? Baseline, PatchConversionAnalysis Analysis);
+    private sealed record ArchiveConversion(BaselineEntry? Baseline, PatchConversionAnalysis Analysis, byte[] SourceBytes);
 }

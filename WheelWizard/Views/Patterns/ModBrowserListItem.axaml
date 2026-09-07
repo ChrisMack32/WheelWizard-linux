@@ -11,7 +11,13 @@
             <patterns:ModBrowserListItem Width="294" Height="89"
                                            ModTitle="Some other mod with quite a long title"
                                            UsesPatches="true"
+                                           CompatibilityLabel="WiiCompiled + Dolphin"
                                            ModAuthor="somebody else with also a long name and the name"/>
+            
+            <patterns:ModBrowserListItem Width="294" Height="89"
+                                           ModTitle="Dolphin-only texture pack"
+                                           CompatibilityLabel="Dolphin only"
+                                           ModAuthor="texture artist"/>
             
             <patterns:ModBrowserListItem Width="294" Height="89"
                                            ModTitle="Coolest mod ever made"
@@ -77,10 +83,13 @@
                                     IsVisible="False"
                                     Margin="0,6,0,0"
                                     Padding="6,2"
-                                    Background="#1E5E3A"
+                                    Background="#5E4A1E"
                                     CornerRadius="9999"
                                     HorizontalAlignment="Left">
-                                <TextBlock Classes="TinyText" Text="Uses Patches!" Foreground="#D6FFE2" />
+                                <TextBlock x:Name="PART_PatchesBadgeText"
+                                           Classes="TinyText"
+                                           Text="{TemplateBinding CompatibilityLabel}"
+                                           Foreground="#FFE8C2" />
                             </Border>
                         </StackPanel>
                         
@@ -138,19 +147,31 @@
                             </Style>
                         </Style>
 
+                        <Style Selector="patterns|ModBrowserListItem Border#PART_ModItemBorder">
+                            <Style Selector="^ Border#PART_PatchesBadge">
+                                <Setter Property="IsVisible" Value="True"/>
+                            </Style>
+                        </Style>
+
                         <Style Selector="patterns|ModBrowserListItem[UsesPatches=true] Border#PART_ModItemBorder">
                             <Setter Property="Background" Value="#173726"/>
                             <Style Selector="^ Border#PART_ImageBorder">
                                 <Setter Property="Background" Value="#28503B"/>
                             </Style>
                             <Style Selector="^ Border#PART_PatchesBadge">
-                                <Setter Property="IsVisible" Value="True"/>
+                                <Setter Property="Background" Value="#1E5E3A"/>
+                            </Style>
+                            <Style Selector="^ TextBlock#PART_PatchesBadgeText">
+                                <Setter Property="Foreground" Value="#D6FFE2"/>
                             </Style>
                         </Style>
                         
                         <Style Selector="patterns|ModBrowserListItem[ModTitle=LOADING][ModAuthor=LOADING] Border#PART_ModItemBorder">
                             <Style Selector="^ Border#PART_OverlayLoading">
                                 <Setter Property="IsVisible" Value="True"/>
+                            </Style>
+                            <Style Selector="^ Border#PART_PatchesBadge">
+                                <Setter Property="IsVisible" Value="False"/>
                             </Style>
                             <Setter Property="Height" Value="69"/>
                             <Setter Property="VerticalAlignment" Value="Top"/>

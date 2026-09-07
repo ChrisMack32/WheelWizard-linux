@@ -1,5 +1,6 @@
 using Avalonia.Interactivity;
 using WheelWizard.CustomDistributions;
+using WheelWizard.Models.Enums;
 using WheelWizard.Recomp;
 using WheelWizard.Recomp.Domain;
 using WheelWizard.Services;
@@ -125,6 +126,7 @@ public partial class OtherSettings : UserControlBase
 
     private async Task UpdateNativeInstallAsync()
     {
+        DolphinReinstallButton.IsEnabled = false;
         var goal = t("progress.updating_recomp_and_rr");
         var progressWindow = new ProgressWindow(goal).SetGoal(goal).SetExtraText(t("progress.this_may_take_a_while"));
         var progress = new Progress<RecompInstallProgress>(update =>
@@ -136,13 +138,32 @@ public partial class OtherSettings : UserControlBase
         progressWindow.Show();
         try
         {
-            var result = await RecompInstallService!.InstallAsync(progress);
+            var status = await RecompInstallService!.GetCurrentStatusAsync();
+            if (status is WheelWizardStatus.Ready or WheelWizardStatus.NoServerButInstalled)
+            {
+                progressWindow.Close();
+                ViewUtils.ShowSnackbar(t("snackbar_success.recomp_already_current"));
+                return;
+            }
+
+            if (status is WheelWizardStatus.ConfigNotFinished)
+            {
+                progressWindow.Close();
+                MessageTranslationHelper.ShowMessage(Fail(t("message_warning.not_find_game.extra")));
+                return;
+            }
+
+            var result = await RecompInstallService.InstallAsync(progress);
+            progressWindow.Close();
             if (result.IsFailure)
                 MessageTranslationHelper.ShowMessage(result.Error);
+            else
+                ViewUtils.ShowSnackbar(t("snackbar_success.recomp_updated"));
         }
         finally
         {
             progressWindow.Close();
+            DolphinReinstallButton.IsEnabled = true;
         }
     }
 

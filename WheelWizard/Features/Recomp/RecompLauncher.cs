@@ -120,6 +120,11 @@ public class RecompLauncher(
 
         try
         {
+            // Linux WiiCompiled downloads Retro Rewind itself. Do not send first-time users through
+            // Wheel Wizard's separate Dolphin RR package, which needs Dolphin paths and a web hunt.
+            if (OperatingSystem.IsLinux())
+                return await installService.GetCurrentStatusAsync();
+
             // A native Linux WiiCompiled build already includes Retro Rewind. Don't block Play on
             // Wheel Wizard's separate Dolphin RR package being present in the Load folder.
             if (installService.IsInstalled)
@@ -240,23 +245,27 @@ public class RecompLauncher(
         {
             progressWindow.Show();
 
-            var retroRewindResult = await EnsureRetroRewindCurrentAsync(progressWindow, cancellationTokenSource.Token);
-            if (retroRewindResult.IsFailure)
-                return IsCancellationRequested(progressWindow, cancellationTokenSource)
-                    ? CancellationWarning("WiiCompiled installation was cancelled.")
-                    : retroRewindResult.Error;
-
-            var retroRewindCommitted = retroRewindResult.Value;
-            if (!retroRewindCommitted && IsCancellationRequested(progressWindow, cancellationTokenSource))
-                return CancellationWarning("WiiCompiled installation was cancelled.");
-
-            if (retroRewindCommitted)
+            var retroRewindCommitted = false;
+            if (!OperatingSystem.IsLinux())
             {
-                // RR is now durably published. The paired recomp reconciliation is the second
-                // half of that commit and must finish even if Cancel raced the RR commit point.
-                // Disable the button at this commit barrier: reporting "cancelled" after both
-                // halves complete would invite an unnecessary retry of a successful operation.
-                progressWindow.SetCancellationTokenSource(null);
+                var retroRewindResult = await EnsureRetroRewindCurrentAsync(progressWindow, cancellationTokenSource.Token);
+                if (retroRewindResult.IsFailure)
+                    return IsCancellationRequested(progressWindow, cancellationTokenSource)
+                        ? CancellationWarning("WiiCompiled installation was cancelled.")
+                        : retroRewindResult.Error;
+
+                retroRewindCommitted = retroRewindResult.Value;
+                if (!retroRewindCommitted && IsCancellationRequested(progressWindow, cancellationTokenSource))
+                    return CancellationWarning("WiiCompiled installation was cancelled.");
+
+                if (retroRewindCommitted)
+                {
+                    // RR is now durably published. The paired recomp reconciliation is the second
+                    // half of that commit and must finish even if Cancel raced the RR commit point.
+                    // Disable the button at this commit barrier: reporting "cancelled" after both
+                    // halves complete would invite an unnecessary retry of a successful operation.
+                    progressWindow.SetCancellationTokenSource(null);
+                }
             }
 
             // The Retro Rewind commit is a barrier: once it is durable, the matching recomp

@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace WheelWizard.Features.Patches;
 
-internal static class PatchConversionHelpers
+public static class PatchConversionHelpers
 {
     public static bool TryGetJsonElement(object? value, out JsonElement element)
     {
@@ -22,6 +22,15 @@ internal static class PatchConversionHelpers
             return null;
 
         return element.GetString();
+    }
+
+    public static string NormalizeArchiveLogicalPath(string path)
+    {
+        var normalized = path.Replace('\\', '/').Trim();
+        while (normalized.StartsWith("./", StringComparison.Ordinal))
+            normalized = normalized[2..];
+
+        return normalized.Trim('/');
     }
 
     public static string HashBytes64(byte[] bytes)

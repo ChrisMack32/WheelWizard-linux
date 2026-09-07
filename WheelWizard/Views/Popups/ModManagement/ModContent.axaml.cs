@@ -1,12 +1,15 @@
 ﻿using Avalonia.Interactivity;
 using Avalonia.Media.Imaging;
+using WheelWizard.Features.Patches;
 using WheelWizard.GameBanana;
 using WheelWizard.GameBanana.Domain;
 using WheelWizard.Helpers;
 using WheelWizard.Mods;
 using WheelWizard.Services;
+using WheelWizard.Settings;
 using WheelWizard.Shared.DependencyInjection;
 using WheelWizard.Shared.MessageTranslations;
+using WheelWizard.Views.Components;
 using WheelWizard.Views.Popups.Generic;
 
 namespace WheelWizard.Views.Popups.ModManagement;
@@ -24,6 +27,9 @@ public partial class ModContent : UserControlBase
 
     [Inject]
     private IModManager ModManager { get; set; } = null!;
+
+    [Inject]
+    private ISettingsManager SettingsService { get; set; } = null!;
 
     public ModContent()
     {
@@ -65,7 +71,12 @@ public partial class ModContent : UserControlBase
     /// <param name="ModId">The ID of the mod to load.</param>
     /// <param name="newDownloadUrl">The download URL to use instead of the one from the mod details.</param>
     /// <param name="cancellationToken">Cancellation token to cancel the loading of the current details.</param>
-    public async Task<bool> LoadModDetailsAsync(int ModId, string? newDownloadUrl = null, CancellationToken cancellationToken = default)
+    public async Task<bool> LoadModDetailsAsync(
+        int ModId,
+        string? newDownloadUrl = null,
+        bool? usesPatches = null,
+        CancellationToken cancellationToken = default
+    )
     {
         // Check if cancellation has been requested before starting
         if (cancellationToken.IsCancellationRequested)
@@ -101,6 +112,7 @@ public partial class ModContent : UserControlBase
         LikesCountBox.Text = CurrentMod.LikeCount.ToString();
         ViewsCountBox.Text = CurrentMod.ViewCount.ToString();
         DownloadsCountBox.Text = CurrentMod.DownloadCount.ToString();
+        ShowCompatibility(CurrentMod.UsesPatches || usesPatches == true);
 
         // Wrap the mod description in a div tag so that CSS can be applied
         ModDescriptionHtmlPanel.Text = $"<body>{CurrentMod.Text}</body>";
@@ -158,6 +170,19 @@ public partial class ModContent : UserControlBase
         return true;
     }
 
+    private bool CurrentModWorksWithWiiCompiled { get; set; }
+
+    private void ShowCompatibility(bool usesPatches)
+    {
+        CurrentModWorksWithWiiCompiled = usesPatches;
+        CompatibilityBox.Text = ModLauncherCompatibility.BrowserLabel(usesPatches);
+        CompatibilityBox.TipText = ModLauncherCompatibility.BrowserTip(usesPatches);
+        CompatibilityBox.Variant = usesPatches ? StateBox.StateBoxVariantType.Success : StateBox.StateBoxVariantType.Warning;
+        CompatibilityBox.IsVisible = true;
+        CompatibilityNote.Text = ModLauncherCompatibility.BrowserNote(usesPatches, SettingsService.IsRecompModeActive());
+        CompatibilityNote.IsVisible = true;
+    }
+
     private void UpdateDownloadButtonState(int modId)
     {
         var isInstalled = ModManager.IsModInstalled(modId);
@@ -175,6 +200,11 @@ public partial class ModContent : UserControlBase
         ModTitle.Text = string.Empty;
         AuthorButton.Text = t("state.unknown");
         LikesCountBox.Text = ViewsCountBox.Text = DownloadsCountBox.Text = "0";
+        CompatibilityBox.Text = string.Empty;
+        CompatibilityBox.IsVisible = false;
+        CompatibilityNote.Text = string.Empty;
+        CompatibilityNote.IsVisible = false;
+        CurrentModWorksWithWiiCompiled = false;
         ModDescriptionHtmlPanel.Text = string.Empty;
         IsVisible = false;
     }
@@ -184,9 +214,11 @@ public partial class ModContent : UserControlBase
         if (CurrentMod == null)
             return;
 
-        var confirmation = await new YesNoWindow()
-            .SetMainText(t("question.install_mod.title", CurrentMod.Name) ?? CurrentMod.Name)
-            .AwaitAnswer();
+        var confirmationWindow = new YesNoWindow().SetMainText(t("question.install_mod.title", CurrentMod.Name) ?? CurrentMod.Name);
+        if (SettingsService.IsRecompModeActive() && !CurrentModWorksWithWiiCompiled)
+            confirmationWindow.SetExtraText(t("patch.launcher.install_dolphin_only"));
+
+        var confirmation = await confirmationWindow.AwaitAnswer();
         if (!confirmation)
             return;
 
@@ -204,7 +236,7 @@ public partial class ModContent : UserControlBase
                 .Show();
         }
 
-        _ = LoadModDetailsAsync(CurrentMod.Id);
+        _ = LoadModDetailsAsync(CurrentMod.Id, usesPatches: CurrentModWorksWithWiiCompiled);
     }
 
     private async Task<OperationResult> DownloadAndInstallCurrentModAsync()

@@ -571,7 +571,27 @@ public static class PathManager
 
     // Helper paths for folders used across multiple files
 
-    public static string PatchesFolderPath => Path.Combine(RiivolutionWhWzFolderPath, "RetroRewind6", "Patches");
+    public static string PatchesFolderPath
+    {
+        get
+        {
+            if (OperatingSystem.IsLinux() && Settings.IsRecompModeActive())
+            {
+                var retroRewind = RecompLinuxPaths.FindRetroRewind6();
+                if (!string.IsNullOrWhiteSpace(retroRewind))
+                    return Path.Combine(retroRewind, "Patches");
+
+                return Path.Combine(
+                    RecompLinuxPaths.GamesRootPathIfPresent() ?? RecompLinuxPaths.BundledRootPath,
+                    "RetroRewind",
+                    "RetroRewind6",
+                    "Patches"
+                );
+            }
+
+            return Path.Combine(RiivolutionWhWzFolderPath, "RetroRewind6", "Patches");
+        }
+    }
     public static string RrBetaFolderPath => Path.Combine(RiivolutionWhWzFolderPath, "RRBeta");
     public static string RrBetaPatchesFolderPath => Path.Combine(RrBetaFolderPath, "Patches");
 

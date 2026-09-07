@@ -33,7 +33,7 @@
                       x:Name="PatchesOnlyToggle"
                       Classes="Switch"
                       Margin="0,0,0,8"
-                      Content="Patches only"
+                      Content="{loc:T action.patches_only}"
                       Click="PatchesOnlyToggle_Click" />
 
             <!-- Mod List -->
@@ -51,6 +51,7 @@
                                                        ViewCount="{Binding Mod.ViewCount}"
                                                        LikeCount="{Binding Mod.LikeCount}"
                                                        UsesPatches="{Binding Mod.UsesPatches}"
+                                                       CompatibilityLabel="{Binding CompatibilityLabel}"
                                                        ImageUrl="{Binding PreviewImageUrl}"
                                                         />
                     </DataTemplate>

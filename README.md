@@ -33,17 +33,14 @@ Official Wheel Wizard still targets Windows for WiiCompiled. This fork keeps tha
 
 ### What you need
 
-1. A legal Mario Kart Wii dump you already own
-2. A WiiCompiled + Retro Rewind install (this repo is only the manager, not the game)
-3. [.NET 10 SDK](https://dotnet.microsoft.com/download) to build from source
+1. This app (the [Linux release](https://github.com/ChrisMack32/WheelWizard-linux/releases))
+2. A legal Mario Kart Wii dump you already own — keep it wherever you want
 
-Typical layout next to the published app:
+Point Wheel Wizard at your dump in **Settings → Location → Mario Kart Wii Game File**. You do not have to copy the ROM into a special folder.
 
-```
-WheelWizard/                 # this program
-WiiCompiled/play/RetroRewind # native game
-WiiCompiled/rom/             # your dump goes here; never commit it
-```
+Home **Install** then downloads Retro Rewind and the official WiiCompiled AppImage and compiles Retro Rewind with the toolchain bundled in that AppImage. You do not need Distrobox, a compiler, GitHub browsing, or an AI chatbot. The first compile can take several minutes.
+
+If a native `RetroRewind` binary is already installed, Play will find it.
 
 ### Build on SteamOS / Linux
 
@@ -51,10 +48,8 @@ WiiCompiled/rom/             # your dump goes here; never commit it
 export DOTNET_ROOT="$HOME/.dotnet"
 export PATH="$DOTNET_ROOT:$PATH"
 dotnet test WheelWizard.Test/WheelWizard.Test.csproj -c Release
-dotnet publish WheelWizard/WheelWizard.csproj -c Release -r linux-x64 --self-contained true -o "$HOME/Games/WheelWizard"
+dotnet publish WheelWizard/WheelWizard.csproj -c Release -r linux-x64 --self-contained true -o ./publish/linux-x64
 ```
-
-Publish into an existing folder is safe: it replaces the app binaries and leaves a sibling `WiiCompiled` tree alone.
 
 ## Free and Open Source
 

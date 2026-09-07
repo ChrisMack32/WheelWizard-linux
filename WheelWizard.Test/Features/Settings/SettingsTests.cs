@@ -82,9 +82,17 @@ public class SettingsManagerTests
 
         Assert.True(result.IsSuccess);
         Assert.False(result.Value.IsValid);
+        Assert.Contains(result.Value.Issues, issue => issue.Code == SettingsValidationCode.InvalidGameLocation);
+        if (OperatingSystem.IsLinux())
+        {
+            // This fork defaults to WiiCompiled on Linux, so empty Dolphin paths are allowed.
+            Assert.DoesNotContain(result.Value.Issues, issue => issue.Code == SettingsValidationCode.InvalidUserFolderPath);
+            Assert.DoesNotContain(result.Value.Issues, issue => issue.Code == SettingsValidationCode.InvalidDolphinLocation);
+            return;
+        }
+
         Assert.Contains(result.Value.Issues, issue => issue.Code == SettingsValidationCode.InvalidUserFolderPath);
         Assert.Contains(result.Value.Issues, issue => issue.Code == SettingsValidationCode.InvalidDolphinLocation);
-        Assert.Contains(result.Value.Issues, issue => issue.Code == SettingsValidationCode.InvalidGameLocation);
     }
 
     [Fact]

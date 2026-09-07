@@ -18,6 +18,26 @@ namespace WheelWizard.Test.Features
             _service = new GameBananaSingletonService(_apiCaller);
         }
 
+        [Theory]
+        [InlineData("Patches: True", true)]
+        [InlineData("patches", true)]
+        [InlineData("patch", true)]
+        [InlineData("Texture", false)]
+        [InlineData("", false)]
+        public void PatchTags_DetectPulsarPatchLabel(string title, bool expected)
+        {
+            Assert.Equal(expected, GameBananaPatchTags.IsPatchesTag(title));
+        }
+
+        [Fact]
+        public void ModDetails_UsesPatches_FromGameBananaTags()
+        {
+            var details = CreateFakeModDetails(12);
+            details.Tags = [new() { Title = "Patches: True", Value = "Patches: True" }];
+
+            Assert.True(details.UsesPatches);
+        }
+
         [Fact]
         public async Task GetModSearchResults_WithValidSearchTerm_ReturnsResults()
         {

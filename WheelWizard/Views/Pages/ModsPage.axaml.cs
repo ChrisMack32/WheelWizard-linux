@@ -15,12 +15,19 @@ using WheelWizard.Services;
 using WheelWizard.Settings;
 using WheelWizard.Shared.DependencyInjection;
 using WheelWizard.Shared.MessageTranslations;
+using WheelWizard.Views.Components;
 using WheelWizard.Views.Popups.Generic;
 using WheelWizard.Views.Popups.ModManagement;
 
 namespace WheelWizard.Views.Pages;
 
-public record ModListItem(Mod Mod, bool IsLowest, bool IsHighest);
+public record ModListItem(Mod Mod, bool IsLowest, bool IsHighest)
+{
+    public string CompatibilityLabel => ModLauncherCompatibility.Label(Mod);
+    public string CompatibilityTip => ModLauncherCompatibility.Tip(Mod);
+    public StateBox.StateBoxVariantType CompatibilityVariant =>
+        ModLauncherCompatibility.WorksWithWiiCompiled(Mod) ? StateBox.StateBoxVariantType.Success : StateBox.StateBoxVariantType.Warning;
+}
 
 public partial class ModsPage : UserControlBase, INotifyPropertyChanged
 {
@@ -45,6 +52,10 @@ public partial class ModsPage : UserControlBase, INotifyPropertyChanged
         );
 
     public string StoragePageTitle => t("page_title.patches");
+
+    public string LauncherCompatibilityNote => ModLauncherCompatibility.PageNote(SettingsService.IsRecompModeActive());
+
+    public string EmptyModsBody => SettingsService.IsRecompModeActive() ? t("empty_content.no_mods_recomp") : t("empty_content.no_mods");
 
     private bool _hasMods;
 

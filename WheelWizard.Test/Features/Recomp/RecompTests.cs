@@ -1,4 +1,6 @@
+using WheelWizard.Features.Patches;
 using WheelWizard.Models.Enums;
+using WheelWizard.Models.Mods;
 using WheelWizard.Recomp;
 using WheelWizard.Recomp.Domain;
 
@@ -46,6 +48,66 @@ public class RecompTests
 
         Assert.EndsWith("--retro-dir \"D:\\WheelWizard\\RetroRewind6\" --skip-retro-wfc-payload", arguments);
         Assert.DoesNotContain("--download-retro-wfc-payload", arguments);
+    }
+
+    [Fact]
+    public void LinuxInstall_UsesTheAppImageVerbAndBundledToolchainFlags()
+    {
+        var arguments = RecompLinuxSetupArgs.BuildInstallArguments(
+            "/home/deck/roms/RMCP01.wbfs",
+            "/opt/WiiCompiled/play",
+            "/opt/WiiCompiled/RetroRewind/RetroRewind6"
+        );
+
+        Assert.Equal(
+            [
+                "--appimage-extract-and-run",
+                "install",
+                "--game",
+                "/home/deck/roms/RMCP01.wbfs",
+                "--install-dir",
+                "/opt/WiiCompiled/play",
+                "--retro-dir",
+                "/opt/WiiCompiled/RetroRewind/RetroRewind6",
+                "--download-retro-wfc-payload",
+                "--progress-json",
+            ],
+            arguments
+        );
+    }
+
+    [Fact]
+    public void LinuxInstall_SkipsThePayloadOnlyWhenAskedTo()
+    {
+        var arguments = RecompLinuxSetupArgs.BuildInstallArguments(
+            "/home/deck/roms/RMCP01.wbfs",
+            "/opt/WiiCompiled/play",
+            "/opt/WiiCompiled/RetroRewind/RetroRewind6",
+            RecompRetroWfcPayloadMode.Skip
+        );
+
+        Assert.Equal("--skip-retro-wfc-payload", arguments[^2]);
+        Assert.DoesNotContain("--download-retro-wfc-payload", arguments);
+    }
+
+    [Fact]
+    public void LinuxCompileHost_RunsAppRunInsideDistrobox()
+    {
+        var install = RecompLinuxCompileHost.BuildAppRunInstallArguments(
+            "/home/deck/roms/RMCP01.wbfs",
+            "/opt/WiiCompiled/play",
+            "/opt/WiiCompiled/RetroRewind/RetroRewind6"
+        );
+        var arguments = RecompLinuxCompileHost.BuildDistroboxEnterArguments("/opt/WiiCompiled/setup/AppRun", install);
+
+        Assert.Equal("enter", arguments[0]);
+        Assert.Equal("wiicompiled", arguments[1]);
+        Assert.Equal("--", arguments[2]);
+        Assert.Equal("/opt/WiiCompiled/setup/AppRun", arguments[3]);
+        Assert.Equal("install", arguments[4]);
+        Assert.DoesNotContain("--appimage-extract-and-run", arguments);
+        Assert.True(RecompLinuxCompileHost.ListOutputHasContainer("9f60ade6010f | wiicompiled          | Up 27 hours"));
+        Assert.False(RecompLinuxCompileHost.ListOutputHasContainer("abc | other | Up"));
     }
 
     [Fact]
@@ -141,6 +203,16 @@ public class RecompTests
         );
 
         Assert.Equal("6.12.7", latest);
+    }
+
+    [Fact]
+    public void PulsarPatchMods_WorkWithWiiCompiled_LooseDolphinModsDoNot()
+    {
+        var pulsar = new Mod { Title = "Pulsar Pack", HasIncompatibleFiles = false };
+        var dolphinOnly = new Mod { Title = "Loose SZS", HasIncompatibleFiles = true };
+
+        Assert.True(ModLauncherCompatibility.WorksWithWiiCompiled(pulsar));
+        Assert.False(ModLauncherCompatibility.WorksWithWiiCompiled(dolphinOnly));
     }
 
     [Fact]

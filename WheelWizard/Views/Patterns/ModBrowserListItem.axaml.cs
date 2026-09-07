@@ -77,6 +77,16 @@ public class ModBrowserListItem : TemplatedControl
         set => SetValue(UsesPatchesProperty, value);
     }
 
+    public static readonly StyledProperty<string> CompatibilityLabelProperty = AvaloniaProperty.Register<ModBrowserListItem, string>(
+        nameof(CompatibilityLabel)
+    );
+
+    public string CompatibilityLabel
+    {
+        get => GetValue(CompatibilityLabelProperty);
+        set => SetValue(CompatibilityLabelProperty, value);
+    }
+
     protected override async void OnApplyTemplate(TemplateAppliedEventArgs e)
     {
         base.OnApplyTemplate(e);

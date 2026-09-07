@@ -20,6 +20,19 @@ public interface IRecompProcessRunner
         Action<string>? onStandardOutputLine,
         CancellationToken cancellationToken = default
     );
+
+    /// <summary>
+    /// Same as the string overload, but each argument is passed separately so Linux paths do not
+    /// go through Windows quoting. Extra environment variables are merged into the child process.
+    /// </summary>
+    Task<OperationResult<int>> RunAsync(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        string? workingDirectory,
+        Action<string>? onStandardOutputLine,
+        IReadOnlyDictionary<string, string>? extraEnvironment = null,
+        CancellationToken cancellationToken = default
+    );
 }
 
 /// <inheritdoc />
@@ -29,12 +42,34 @@ public sealed class RecompProcessRunner(ILogger<RecompProcessRunner> logger) : I
     private static readonly TimeSpan CancellationGracePeriod = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan ForcedExitGracePeriod = TimeSpan.FromSeconds(5);
 
-    public async Task<OperationResult<int>> RunAsync(
+    public Task<OperationResult<int>> RunAsync(
         string fileName,
         string arguments,
         string? workingDirectory,
         Action<string>? onStandardOutputLine,
         CancellationToken cancellationToken = default
+    ) => RunCoreAsync(CreateStartInfo(fileName, arguments, workingDirectory), fileName, onStandardOutputLine, cancellationToken);
+
+    public Task<OperationResult<int>> RunAsync(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        string? workingDirectory,
+        Action<string>? onStandardOutputLine,
+        IReadOnlyDictionary<string, string>? extraEnvironment = null,
+        CancellationToken cancellationToken = default
+    ) =>
+        RunCoreAsync(
+            CreateStartInfo(fileName, arguments, workingDirectory, extraEnvironment),
+            fileName,
+            onStandardOutputLine,
+            cancellationToken
+        );
+
+    private async Task<OperationResult<int>> RunCoreAsync(
+        ProcessStartInfo startInfo,
+        string fileName,
+        Action<string>? onStandardOutputLine,
+        CancellationToken cancellationToken
     )
     {
         try
@@ -48,7 +83,6 @@ public sealed class RecompProcessRunner(ILogger<RecompProcessRunner> logger) : I
                     ? new EventWaitHandle(initialState: false, EventResetMode.ManualReset, cancellationEventName)
                     : null;
             EnsureUnixExecutable(fileName);
-            var startInfo = CreateStartInfo(fileName, arguments, workingDirectory);
             if (cancellationEvent is not null)
                 startInfo.Environment[CancellationEventEnvironmentVariable] = cancellationEventName;
 
@@ -61,8 +95,11 @@ public sealed class RecompProcessRunner(ILogger<RecompProcessRunner> logger) : I
             };
             process.ErrorDataReceived += (_, eventArgs) =>
             {
-                if (!string.IsNullOrWhiteSpace(eventArgs.Data))
-                    logger.LogDebug("Recomp setup stderr: {Line}", eventArgs.Data);
+                if (string.IsNullOrWhiteSpace(eventArgs.Data))
+                    return;
+
+                logger.LogDebug("Recomp setup stderr: {Line}", eventArgs.Data);
+                onStandardOutputLine?.Invoke(eventArgs.Data);
             };
 
             if (!process.Start())
@@ -124,11 +161,35 @@ public sealed class RecompProcessRunner(ILogger<RecompProcessRunner> logger) : I
         }
     }
 
-    private static ProcessStartInfo CreateStartInfo(string fileName, string arguments, string? workingDirectory) =>
+    private static ProcessStartInfo CreateStartInfo(string fileName, string arguments, string? workingDirectory)
+    {
+        var startInfo = CreateBaseStartInfo(fileName, workingDirectory);
+        startInfo.Arguments = arguments;
+        return startInfo;
+    }
+
+    private static ProcessStartInfo CreateStartInfo(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        string? workingDirectory,
+        IReadOnlyDictionary<string, string>? extraEnvironment
+    )
+    {
+        var startInfo = CreateBaseStartInfo(fileName, workingDirectory);
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+        if (extraEnvironment is null)
+            return startInfo;
+
+        foreach (var (key, value) in extraEnvironment)
+            startInfo.Environment[key] = value;
+        return startInfo;
+    }
+
+    private static ProcessStartInfo CreateBaseStartInfo(string fileName, string? workingDirectory) =>
         new()
         {
             FileName = fileName,
-            Arguments = arguments,
             WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? string.Empty : workingDirectory,
             UseShellExecute = false,
             // The recomp setup is CLI-only. Wheel Wizard supplies the UI, including during launch,

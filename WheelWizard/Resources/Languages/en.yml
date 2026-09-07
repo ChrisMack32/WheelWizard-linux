@@ -116,6 +116,7 @@ en:
     import: "Import"
     clone: "Clone"
     convert_to_patches: "Convert to patches"
+    patches_only: "Patches only"
     enable_all: "Enable All"
     disable_all: "Disable All"
     rename: "Rename"
@@ -218,6 +219,7 @@ en:
     no_friends_title: "No friends yet!"
     no_friends: "You can add friends in-game"
     no_mods: "Mods can alter how the game works. Start importing your first mod by clicking the button below."
+    no_mods_recomp: "WiiCompiled uses Pulsar patches. Import a patch-style mod, or convert a Dolphin-only mod with Convert to patches."
     no_mods_title: "No mods found"
     no_rooms: "You might not have internet connection, or no-one might be playing."
     no_rooms_title: "No rooms found"
@@ -495,6 +497,8 @@ en:
     created_duplicates_miis: "Created {$1} duplicate Miis"
     profile_set_primary: "Set profile as primary"
     dolphin_updated: "Dolphin Emulator has been updated"
+    recomp_already_current: "WiiCompiled and Retro Rewind are already up to date"
+    recomp_updated: "WiiCompiled and Retro Rewind are ready"
   snackbar_error:
     mii_failure_deserialize: "Failed to deserialize Mii '{$1}'"
     mii_failure_update: "Failed to update Mii '{$1}'"
@@ -511,8 +515,19 @@ en:
     select_mod_file: "Select Mod File"
   patch:
     incompatible_mod:
-      message: "This mod is incompatible with other mods. Launching with this mod enabled may cause incorrect behavior or crashes. Consider converting it to patches by right-clicking the mod."
-      title: "INCOMPATIBLE MOD"
+      message: "This is a Dolphin-style file mod. WiiCompiled will not load it, and it can clash with other mods in Dolphin. Right-click and choose Convert to patches."
+      title: "DOLPHIN ONLY"
+    launcher:
+      both: "WiiCompiled + Dolphin"
+      dolphin_only: "Dolphin only"
+      both_tip: "Pulsar patches. These apply when you press Play in WiiCompiled or Dolphin."
+      dolphin_only_tip: "WiiCompiled cannot load this until you convert it to patches. Dolphin Retro Rewind can still use it."
+      note_recomp: "Play is WiiCompiled. Mods marked WiiCompiled + Dolphin apply. Dolphin-only mods need Convert to patches first."
+      note_dolphin: "Play is Dolphin. Every enabled mod applies. Convert a Dolphin-only mod to patches if you also want it in WiiCompiled."
+      browser_note_patches: "GameBanana marked this as a Pulsar patch. It applies in WiiCompiled and Dolphin after you install it."
+      browser_note_dolphin: "GameBanana did not mark this as a patch. After install it will show as Dolphin only until you convert it to patches."
+      browser_note_dolphin_recomp: "WiiCompiled will not load this as-is. Install it, then use Convert to patches on the Patches page, or pick a mod marked WiiCompiled + Dolphin."
+      install_dolphin_only: "This is not a patch-style mod. WiiCompiled will not load it until you convert it to patches after install."
   warning:
     brsar_external_count: "{$1} BRSAR file entries are external references and cannot be exported."
     brsar_file_id_external: "BRSAR fileId {$1} is an external file reference and cannot be exported."
@@ -528,6 +543,7 @@ en:
     szs_matches_baseline: "The selected SZS matches the built-in game baseline exactly."
     unsupported_loose_override_extension: "{$1} uses an unsupported loose override extension (.kcl, .kmp, .slt)."
     whole_file_baseline: "This SZS is stored as a whole-file baseline. Exporting a whole-file override."
+    converted_large_archive_as_whole_file: "This edit is too large for an internal Pulsar patch, so it was exported as a full file replacement."
   option:
     wh_wz_language: "Wheel Wizard Language"
     force_disable_wiimote: "Force Disable Wiimote"
@@ -579,7 +595,7 @@ en:
   helper_text:
     topbar:
       location_warning: "Settings are disabled, complete the location settings first"
-    enable_recomp: "Uses WiiCompiled as the home-page launcher. Turn this off to use Dolphin and Retro Rewind instead."
+    enable_recomp: "Uses WiiCompiled as the home-page launcher. Install downloads Retro Rewind and compiles it for you. Turn this off to use Dolphin instead."
     recomp_manual_update: "This checks WiiCompiled and Retro Rewind. Safe to use when you are already on the latest."
     recomp_share_dolphin_data: "WiiCompiled and Dolphin use the same saves, Miis, and Wii settings."
     recomp_shared_nand_warning: "Do not run Dolphin and WiiCompiled at the same time while sharing NAND data."

@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using WheelWizard.Features.Patches;
 using WheelWizard.GameBanana;
 using WheelWizard.GameBanana.Domain;
 using WheelWizard.Shared.DependencyInjection;
@@ -15,7 +16,10 @@ using VisualExtensions = Avalonia.VisualTree.VisualExtensions;
 
 namespace WheelWizard.Views.Popups.ModManagement;
 
-public record ModSearchResult(GameBananaModPreview Mod, string PreviewImageUrl);
+public record ModSearchResult(GameBananaModPreview Mod, string PreviewImageUrl)
+{
+    public string CompatibilityLabel => Mod.Name == "LOADING" ? string.Empty : ModLauncherCompatibility.BrowserLabel(Mod.UsesPatches);
+}
 
 public partial class ModBrowserWindow : PopupContent, INotifyPropertyChanged
 {
@@ -149,16 +153,19 @@ public partial class ModBrowserWindow : PopupContent, INotifyPropertyChanged
         _loadCancellationToken = new();
 
         var modId = -1;
+        bool? usesPatches = null;
         if (ModListView.SelectedItem is ModSearchResult selectedMod)
         {
             if (selectedMod.Mod.Name == "LOADING")
                 return;
 
             modId = selectedMod.Mod.Id;
+            usesPatches = selectedMod.Mod.UsesPatches;
         }
+
         try
         {
-            await ModDetailViewer.LoadModDetailsAsync(modId, cancellationToken: _loadCancellationToken.Token);
+            await ModDetailViewer.LoadModDetailsAsync(modId, usesPatches: usesPatches, cancellationToken: _loadCancellationToken.Token);
         }
         catch (TaskCanceledException)
         {

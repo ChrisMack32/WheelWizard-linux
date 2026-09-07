@@ -111,6 +111,7 @@ public sealed class RecompInstallService : IRecompInstallService
     private readonly IRecompSetupDownloader downloader;
     private readonly IRecompRetroWfcPayloadProbe payloadProbe;
     private readonly IRecompLinuxUpdateChecker linuxUpdateChecker;
+    private readonly IRecompLinuxNativeInstaller linuxNativeInstaller;
     private readonly IGitHubSingletonService gitHubService;
     private readonly IFileSystem fileSystem;
     private readonly ILogger<RecompInstallService> logger;
@@ -127,6 +128,7 @@ public sealed class RecompInstallService : IRecompInstallService
         IRecompSetupDownloader downloader,
         IRecompRetroWfcPayloadProbe payloadProbe,
         IRecompLinuxUpdateChecker linuxUpdateChecker,
+        IRecompLinuxNativeInstaller linuxNativeInstaller,
         IGitHubSingletonService gitHubService,
         IFileSystem fileSystem,
         ILogger<RecompInstallService> logger
@@ -137,6 +139,7 @@ public sealed class RecompInstallService : IRecompInstallService
         this.downloader = downloader;
         this.payloadProbe = payloadProbe;
         this.linuxUpdateChecker = linuxUpdateChecker;
+        this.linuxNativeInstaller = linuxNativeInstaller;
         this.gitHubService = gitHubService;
         this.fileSystem = fileSystem;
         this.logger = logger;
@@ -158,28 +161,18 @@ public sealed class RecompInstallService : IRecompInstallService
         if (setupHost is null)
             return null;
 
-        string? versionText = null;
-        var runResult = await processRunner.RunAsync(
-            setupHost,
-            RecompSetupCommandBuilder.BuildVersionArguments(),
-            workingDirectory: null,
-            line =>
-            {
-                if (RecompVersion.TryParse(line, out var version))
-                    versionText = version.ToString();
-            },
-            cancellationToken
-        );
-
-        return runResult.IsSuccess && runResult.Value == 0 ? versionText : null;
+        return await QuerySetupVersionAsync(setupHost, cancellationToken);
     }
 
     public async Task<WheelWizardStatus> GetCurrentStatusAsync(CancellationToken cancellationToken = default)
     {
-        if (environment.NativePlayExecutablePath is not null)
+        if (OperatingSystem.IsLinux())
         {
             if (!IsGameFileConfigured())
                 return WheelWizardStatus.ConfigNotFinished;
+
+            if (environment.NativePlayExecutablePath is null)
+                return WheelWizardStatus.NotInstalled;
 
             var linuxInstalledVersion = await GetInstalledVersionAsync(cancellationToken);
             var linuxOutOfDate = await linuxUpdateChecker.IsOutOfDateAsync(linuxInstalledVersion, cancellationToken);
@@ -398,9 +391,18 @@ public sealed class RecompInstallService : IRecompInstallService
         if (!IsGameFileConfigured())
             return Fail(t("message_warning.not_find_game.extra"));
 
-        var linuxUpdater = RecompLinuxPaths.FindUpdateScript();
-        if (linuxUpdater is not null)
-            return await RunLinuxUpdaterAsync(linuxUpdater, progress, cancellationToken);
+        if (OperatingSystem.IsLinux())
+        {
+            var linuxPayloadModeResult = await ResolveRetroWfcPayloadModeAsync(
+                ReadInstalledState(),
+                confirmOfflineInstall,
+                cancellationToken
+            );
+            if (linuxPayloadModeResult.IsFailure)
+                return linuxPayloadModeResult.Error;
+
+            return await linuxNativeInstaller.InstallOrUpdateAsync(linuxPayloadModeResult.Value, progress, cancellationToken);
+        }
 
         if (environment.NativePlayExecutablePath is not null)
             return Ok();
@@ -714,23 +716,8 @@ public sealed class RecompInstallService : IRecompInstallService
         if (!RecompVersion.TryParse(expectedVersion, out var expected))
             return false;
 
-        string? versionText = null;
-        var runResult = await processRunner.RunAsync(
-            setupFilePath,
-            RecompSetupCommandBuilder.BuildVersionArguments(),
-            workingDirectory: null,
-            line =>
-            {
-                if (RecompVersion.TryParse(line, out var version))
-                    versionText = version.ToString();
-            },
-            cancellationToken
-        );
-
-        return runResult.IsSuccess
-            && runResult.Value == 0
-            && RecompVersion.TryParse(versionText, out var cachedVersion)
-            && cachedVersion.ComparePrecedenceTo(expected) == 0;
+        var versionText = await QuerySetupVersionAsync(setupFilePath, cancellationToken);
+        return RecompVersion.TryParse(versionText, out var cachedVersion) && cachedVersion.ComparePrecedenceTo(expected) == 0;
     }
 
     private bool VersionsMatch(string? first, string? second) =>
@@ -1059,6 +1046,41 @@ public sealed class RecompInstallService : IRecompInstallService
             return environment.InstalledSetupFilePath;
 
         return RecompLinuxPaths.FindSetupHost();
+    }
+
+    private async Task<string?> QuerySetupVersionAsync(string setupHost, CancellationToken cancellationToken)
+    {
+        string? versionText = null;
+        Action<string> onLine = line =>
+        {
+            if (RecompVersion.TryParse(line, out var version))
+                versionText = version.ToString();
+        };
+
+        OperationResult<int> runResult;
+        if (OperatingSystem.IsLinux() && RecompLinuxSetupArgs.IsAppImage(setupHost))
+        {
+            runResult = await processRunner.RunAsync(
+                setupHost,
+                RecompLinuxSetupArgs.BuildVersionArguments(),
+                workingDirectory: null,
+                onLine,
+                RecompLinuxSetupArgs.AppImageEnvironment,
+                cancellationToken
+            );
+        }
+        else
+        {
+            runResult = await processRunner.RunAsync(
+                setupHost,
+                RecompSetupCommandBuilder.BuildVersionArguments(),
+                workingDirectory: null,
+                onLine,
+                cancellationToken
+            );
+        }
+
+        return runResult.IsSuccess && runResult.Value == 0 ? versionText : null;
     }
 
     private async Task<OperationResult> RunLinuxUpdaterAsync(

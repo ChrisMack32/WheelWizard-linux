@@ -7,9 +7,8 @@ public static class RecompExtensions
 {
     /// <summary>
     /// Registers the Mario Kart Wii recomp frontend.
-    /// Windows uses the official setup-host contract. Linux is supported here as well: it launches a
-    /// native WiiCompiled install when one is already present, and still falls back to the AppImage
-    /// host for a from-scratch setup.
+    /// Windows uses the official setup-host contract. Linux downloads Retro Rewind and the official
+    /// WiiCompiled AppImage, then runs that AppImage with its bundled toolchain.
     /// </summary>
     public static IServiceCollection AddRecomp(this IServiceCollection services)
     {
@@ -34,6 +33,7 @@ public static class RecompExtensions
         services.AddSingleton<IRecompSetupDownloader, RecompSetupDownloader>();
         services.AddSingleton<IRecompRetroWfcPayloadProbe, RecompRetroWfcPayloadProbe>();
         services.AddSingleton<IRecompLinuxUpdateChecker, RecompLinuxUpdateChecker>();
+        services.AddSingleton<IRecompLinuxNativeInstaller, RecompLinuxNativeInstaller>();
         services.AddSingleton<IRecompInstallService, RecompInstallService>();
         services.AddTransient<RecompLauncher>();
 

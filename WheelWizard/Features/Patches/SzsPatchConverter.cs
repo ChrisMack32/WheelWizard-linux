@@ -68,8 +68,9 @@ public sealed class SzsPatchConverter(ISzsArchiveDecoder archiveDecoder) : ISzsP
         var baselineMembers = BuildBaselineMembers(baseline);
         var entries = new List<PatchConversionEntry>();
 
-        foreach (var (logicalPath, moddedEntry) in moddedU8.Files)
+        foreach (var (rawLogicalPath, moddedEntry) in moddedU8.Files)
         {
+            var logicalPath = NormalizeArchiveLogicalPath(rawLogicalPath);
             baselineMembers.TryGetValue(logicalPath, out var baselineMember);
 
             if (IsBlockedLooseRawOverrideExtension(logicalPath))
@@ -138,8 +139,9 @@ public sealed class SzsPatchConverter(ISzsArchiveDecoder archiveDecoder) : ISzsP
         var baselineMembers = BuildBaselineMembers(baseline);
         var differences = 0;
 
-        foreach (var (logicalPath, moddedEntry) in moddedU8.Files)
+        foreach (var (rawLogicalPath, moddedEntry) in moddedU8.Files)
         {
+            var logicalPath = NormalizeArchiveLogicalPath(rawLogicalPath);
             baselineMembers.TryGetValue(logicalPath, out var baselineMember);
             if (baselineMember == null)
             {
@@ -177,8 +179,10 @@ public sealed class SzsPatchConverter(ISzsArchiveDecoder archiveDecoder) : ISzsP
                 continue;
 
             var hash = ReadJsonString(member[2]);
-            if (!string.IsNullOrEmpty(logicalPath) && !string.IsNullOrEmpty(hash))
-                members[logicalPath] = new(size, hash);
+            if (string.IsNullOrEmpty(logicalPath) || string.IsNullOrEmpty(hash))
+                continue;
+
+            members[NormalizeArchiveLogicalPath(logicalPath)] = new(size, hash);
         }
 
         return members;
@@ -186,7 +190,10 @@ public sealed class SzsPatchConverter(ISzsArchiveDecoder archiveDecoder) : ISzsP
 
     private static string BuildTaggedPatchName(string logicalPath, string archiveTag)
     {
-        var segments = logicalPath.Split('/').Where(segment => segment.Length > 0 && segment != ".").ToArray();
+        var segments = NormalizeArchiveLogicalPath(logicalPath)
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(segment => segment != ".")
+            .ToArray();
         if (segments.Length == 0)
             throw new InvalidOperationException("Cannot build a tagged override for an empty archive path.");
 

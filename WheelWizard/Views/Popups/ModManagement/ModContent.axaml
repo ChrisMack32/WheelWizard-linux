@@ -38,8 +38,14 @@
                 </Border.OpacityMask>
             </Border>
             <Grid Grid.Row="0">
-                <TextBlock Text="Mod Title" x:Name="ModTitle" HorizontalAlignment="Left" VerticalAlignment="Bottom"
-                           Classes="PageTitleText" Margin="3" />
+                <StackPanel HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="3" Spacing="4">
+                    <TextBlock Text="Mod Title" x:Name="ModTitle"
+                               Classes="PageTitleText" />
+                    <components:StateBox x:Name="CompatibilityBox"
+                                         IconSize="0"
+                                         FontSize="12"
+                                         TipPlacement="Top" />
+                </StackPanel>
 
                 <StackPanel HorizontalAlignment="Right" VerticalAlignment="Bottom" Orientation="Horizontal">
                     <components:StateBox x:Name="LikesCountBox" Text="0" TipText="{loc:T attribute.likes}"
@@ -99,6 +105,11 @@
                     Margin="0,10,0,0" Padding="6">
                 <ScrollViewer>
                     <StackPanel>
+                        <TextBlock x:Name="CompatibilityNote"
+                                   Classes="TinyText"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,10" />
+
                         <!-- Image Carousel -->
                         <components:FormFieldLabel x:Name="ImageLabel"/>
                         <ScrollViewer VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Auto">

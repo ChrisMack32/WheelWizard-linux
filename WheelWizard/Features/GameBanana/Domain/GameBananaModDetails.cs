@@ -12,6 +12,13 @@ public class GameBananaModDetails
     [JsonPropertyName("_sName")]
     public required string Name { get; set; }
 
+    [JsonPropertyName("_aTags")]
+    [JsonConverter(typeof(GameBananaTagListJsonConverter))]
+    public List<GameBananaTag> Tags { get; set; } = [];
+
+    [JsonIgnore]
+    public bool UsesPatches => GameBananaPatchTags.UsesPatches(Tags);
+
     [JsonPropertyName("_sVersion")]
     public required string Version { get; set; }
 
