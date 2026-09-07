@@ -85,16 +85,23 @@ public sealed class RecompLinuxNativeInstaller(
         string fileName;
         IReadOnlyList<string> arguments;
         IReadOnlyDictionary<string, string>? extraEnvironment = null;
-        if (RecompLinuxCompileHost.DistroboxIsAvailable)
+        var distrobox = RecompLinuxCompileHost.FindDistroboxExecutable();
+        if (distrobox is not null)
         {
-            fileName = RecompLinuxCompileHost.DistroboxExecutable;
+            fileName = distrobox;
             arguments = RecompLinuxCompileHost.BuildDistroboxEnterArguments(appRun, installArguments);
         }
         else
         {
+            var linkerLibs = await EnsureLinkerLibrariesAsync(progress, cancellationToken);
+            if (linkerLibs.IsFailure)
+                return linkerLibs.Error;
+
             fileName = setupResult.Value;
             arguments = RecompLinuxSetupArgs.BuildInstallArguments(environment.GameFilePath, playFolder, retroDirResult.Value, payloadMode);
-            extraEnvironment = RecompLinuxSetupArgs.AppImageEnvironment;
+            extraEnvironment = string.IsNullOrWhiteSpace(linkerLibs.Value)
+                ? RecompLinuxSetupArgs.AppImageEnvironment
+                : RecompLinuxLinkerLibraries.WithLibraryPath(RecompLinuxSetupArgs.AppImageEnvironment, linkerLibs.Value);
         }
 
         logger.LogInformation("Running the Linux WiiCompiled installer: {Setup} {Arguments}", fileName, string.Join(' ', arguments));
@@ -302,12 +309,13 @@ public sealed class RecompLinuxNativeInstaller(
         CancellationToken cancellationToken
     )
     {
-        if (!RecompLinuxCompileHost.DistroboxIsAvailable)
+        var distrobox = RecompLinuxCompileHost.FindDistroboxExecutable();
+        if (distrobox is null)
             return Ok();
 
         var listOutput = new System.Text.StringBuilder();
         var listResult = await processRunner.RunAsync(
-            RecompLinuxCompileHost.DistroboxExecutable,
+            distrobox,
             ["list"],
             workingDirectory: null,
             line => listOutput.AppendLine(line),
@@ -321,7 +329,7 @@ public sealed class RecompLinuxNativeInstaller(
         {
             Report(progress, "Creating the WiiCompiled compile environment", 30);
             var createResult = await processRunner.RunAsync(
-                RecompLinuxCompileHost.DistroboxExecutable,
+                distrobox,
                 RecompLinuxCompileHost.BuildCreateArguments(),
                 workingDirectory: null,
                 onStandardOutputLine: null,
@@ -336,7 +344,7 @@ public sealed class RecompLinuxNativeInstaller(
 
         Report(progress, "Checking the compile environment", 32);
         var packages = await processRunner.RunAsync(
-            RecompLinuxCompileHost.DistroboxExecutable,
+            distrobox,
             RecompLinuxCompileHost.BuildEnsureCompilerArguments(),
             workingDirectory: null,
             onStandardOutputLine: null,
@@ -351,16 +359,106 @@ public sealed class RecompLinuxNativeInstaller(
         return Ok();
     }
 
+    private async Task<OperationResult<string>> EnsureLinkerLibrariesAsync(
+        IProgress<RecompInstallProgress>? progress,
+        CancellationToken cancellationToken
+    )
+    {
+        if (RecompLinuxLinkerLibraries.HostHasLibXml2())
+            return Ok(string.Empty);
+
+        var libraryFolder = RecompLinuxLinkerLibraries.LibraryFolder(environment.CacheFolderPath);
+        if (RecompLinuxLinkerLibraries.HasCachedLibXml2(libraryFolder))
+            return Ok(libraryFolder);
+
+        Report(progress, "Downloading SteamOS linker libraries", 33);
+        fileSystem.Directory.CreateDirectory(libraryFolder);
+        var workFolder = fileSystem.Path.Combine(environment.CacheFolderPath, "linker-libs-extract");
+        if (fileSystem.Directory.Exists(workFolder))
+            fileSystem.Directory.Delete(workFolder, recursive: true);
+        fileSystem.Directory.CreateDirectory(workFolder);
+
+        var packages = new (string Url, string FileName)[]
+        {
+            (RecompLinuxLinkerLibraries.LibXml2DebUrl, "libxml2.deb"),
+            (RecompLinuxLinkerLibraries.Icu70DebUrl, "libicu70.deb"),
+        };
+
+        foreach (var (url, fileName) in packages)
+        {
+            var debPath = fileSystem.Path.Combine(workFolder, fileName);
+            var downloadResult = await downloader.DownloadAsync(url, debPath, progress: null, cancellationToken);
+            if (downloadResult.IsFailure)
+                return Fail(t("message_error.recomp_host_compile_failed"));
+
+            if (!await ExtractDebLibrariesAsync(debPath, libraryFolder, cancellationToken))
+                return Fail(t("message_error.recomp_host_compile_failed"));
+        }
+
+        if (!RecompLinuxLinkerLibraries.HasCachedLibXml2(libraryFolder))
+            return Fail(t("message_error.recomp_host_compile_failed"));
+
+        return Ok(libraryFolder);
+    }
+
+    private async Task<bool> ExtractDebLibrariesAsync(string debPath, string libraryFolder, CancellationToken cancellationToken)
+    {
+        var extractFolder = fileSystem.Path.Combine(
+            fileSystem.Path.GetDirectoryName(debPath)!,
+            fileSystem.Path.GetFileNameWithoutExtension(debPath)
+        );
+        fileSystem.Directory.CreateDirectory(extractFolder);
+
+        var unpackDeb = await processRunner.RunAsync(
+            "/usr/bin/bsdtar",
+            ["-C", extractFolder, "-xf", debPath],
+            workingDirectory: extractFolder,
+            onStandardOutputLine: null,
+            extraEnvironment: null,
+            cancellationToken
+        );
+        if (unpackDeb.IsFailure || unpackDeb.Value != 0)
+            return false;
+
+        var dataArchive = fileSystem.Directory.EnumerateFiles(extractFolder, "data.tar*", SearchOption.TopDirectoryOnly).FirstOrDefault();
+        if (dataArchive is null)
+            return false;
+
+        var unpackData = await processRunner.RunAsync(
+            "/usr/bin/bsdtar",
+            ["-C", extractFolder, "-xf", dataArchive],
+            workingDirectory: extractFolder,
+            onStandardOutputLine: null,
+            extraEnvironment: null,
+            cancellationToken
+        );
+        if (unpackData.IsFailure || unpackData.Value != 0)
+            return false;
+
+        foreach (var file in fileSystem.Directory.EnumerateFiles(extractFolder, "*", SearchOption.AllDirectories))
+        {
+            var name = fileSystem.Path.GetFileName(file);
+            if (!RecompLinuxLinkerLibraries.ShouldCopyLibraryFile(name))
+                continue;
+
+            fileSystem.File.Copy(file, fileSystem.Path.Combine(libraryFolder, name), overwrite: true);
+        }
+
+        return true;
+    }
+
     private static string ExplainCompileFailure(string message)
     {
-        if (message.Contains("libxml2.so.2", StringComparison.OrdinalIgnoreCase))
-            return "SteamOS cannot compile WiiCompiled on the host (the AppImage linker needs libxml2.so.2). Restart Wheel Wizard and try again so it can compile inside Distrobox.";
-
         if (
-            message.Contains("local-build.sh", StringComparison.OrdinalIgnoreCase)
-            && message.Contains("diagnostics", StringComparison.OrdinalIgnoreCase)
+            message.Contains("libxml2.so.2", StringComparison.OrdinalIgnoreCase)
+            || (
+                message.Contains("local-build.sh", StringComparison.OrdinalIgnoreCase)
+                && message.Contains("diagnostics", StringComparison.OrdinalIgnoreCase)
+            )
         )
-            return "The WiiCompiled compile failed. SteamOS needs Distrobox for this step; Wheel Wizard will use it automatically on the next try.";
+        {
+            return t("message_error.recomp_host_compile_failed");
+        }
 
         return message;
     }

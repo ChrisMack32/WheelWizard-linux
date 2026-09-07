@@ -13,7 +13,30 @@ public static class RecompLinuxCompileHost
     public const string ContainerName = "wiicompiled";
     public const string ContainerImage = "docker.io/library/ubuntu:24.04";
 
-    public static bool DistroboxIsAvailable => File.Exists(DistroboxExecutable);
+    public static bool DistroboxIsAvailable => FindDistroboxExecutable() is not null;
+
+    public static IReadOnlyList<string> DistroboxSearchPaths()
+    {
+        var paths = new List<string> { DistroboxExecutable, "/usr/local/bin/distrobox" };
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(home))
+            paths.Add(Path.Combine(home, ".local", "bin", "distrobox"));
+
+        var pathEnvironment = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(pathEnvironment))
+            return paths;
+
+        foreach (var directory in pathEnvironment.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            paths.Add(Path.Combine(directory, "distrobox"));
+
+        return paths;
+    }
+
+    public static string? FindDistroboxExecutable(Func<string, bool>? fileExists = null)
+    {
+        fileExists ??= File.Exists;
+        return DistroboxSearchPaths().FirstOrDefault(fileExists);
+    }
 
     public static string AppRunPath(string root) => Path.Combine(root, "setup", "AppRun");
 

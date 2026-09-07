@@ -108,6 +108,29 @@ public class RecompTests
         Assert.DoesNotContain("--appimage-extract-and-run", arguments);
         Assert.True(RecompLinuxCompileHost.ListOutputHasContainer("9f60ade6010f | wiicompiled          | Up 27 hours"));
         Assert.False(RecompLinuxCompileHost.ListOutputHasContainer("abc | other | Up"));
+        Assert.Equal(
+            "/home/deck/.local/bin/distrobox",
+            RecompLinuxCompileHost.FindDistroboxExecutable(path => path.EndsWith(".local/bin/distrobox"))
+        );
+        Assert.Null(RecompLinuxCompileHost.FindDistroboxExecutable(_ => false));
+    }
+
+    [Fact]
+    public void LinuxLinkerLibraries_SelectTheUbuntuLibsTheAppImageLinkerNeeds()
+    {
+        Assert.True(RecompLinuxLinkerLibraries.ShouldCopyLibraryFile("libxml2.so.2"));
+        Assert.True(RecompLinuxLinkerLibraries.ShouldCopyLibraryFile("libicuuc.so.70"));
+        Assert.True(RecompLinuxLinkerLibraries.ShouldCopyLibraryFile("libicudata.so.70.1"));
+        Assert.False(RecompLinuxLinkerLibraries.ShouldCopyLibraryFile("libxml2.so.16"));
+        Assert.True(RecompLinuxLinkerLibraries.HostHasLibXml2(path => path == "/usr/lib/x86_64-linux-gnu/libxml2.so.2"));
+        Assert.False(RecompLinuxLinkerLibraries.HostHasLibXml2(_ => false));
+
+        var environment = RecompLinuxLinkerLibraries.WithLibraryPath(
+            new Dictionary<string, string> { ["APPIMAGE_EXTRACT_AND_RUN"] = "1" },
+            "/tmp/linker-libs"
+        );
+        Assert.Equal("1", environment["APPIMAGE_EXTRACT_AND_RUN"]);
+        Assert.StartsWith("/tmp/linker-libs", environment["LD_LIBRARY_PATH"]);
     }
 
     [Fact]

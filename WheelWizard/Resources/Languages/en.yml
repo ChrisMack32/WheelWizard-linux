@@ -458,6 +458,7 @@ en:
     failed_install_dolphin:
       title: "Failed to install Dolphin"
       extra: "The installation of Dolphin Emulator failed. Please try manually installing Flatpak Dolphin."
+    recomp_host_compile_failed: "The WiiCompiled compile failed on SteamOS because the bundled linker needs libxml2.so.2. Wheel Wizard now downloads that library on this Install. If you still see this, install Distrobox and Podman from Discover, then press Install again."
     failed_retrieve_mod:
       title: "Failed to retrieve mod info"
     mod_download_fail:
