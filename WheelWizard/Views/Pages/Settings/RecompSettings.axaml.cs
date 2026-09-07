@@ -5,6 +5,7 @@ using WheelWizard.Services;
 using WheelWizard.Settings;
 using WheelWizard.Shared.DependencyInjection;
 using WheelWizard.Shared.MessageTranslations;
+using WheelWizard.Steam;
 using WheelWizard.Views.Popups.Generic;
 
 namespace WheelWizard.Views.Pages.Settings;
@@ -27,6 +28,9 @@ public partial class RecompSettings : UserControlBase
 
     [Inject]
     private IRecompInstallService? RecompInstallService { get; set; }
+
+    [Inject]
+    private ISteamLibraryService? SteamLibrary { get; set; }
 
     public RecompSettings()
     {
@@ -60,7 +64,9 @@ public partial class RecompSettings : UserControlBase
             var installFolder = RecompEnvironment?.InstallFolderPath ?? PathManager.RecompInstallFolderPath;
             InstallLocationText.Text = installFolder;
             OpenInstallFolder.IsEnabled = installed && Directory.Exists(installFolder);
-            UninstallButton.IsEnabled = installed;
+            UninstallButton.IsEnabled = installed && RecompLinuxPaths.GamesRootPathIfPresent() is null;
+            AddToSteamRow.IsVisible = OperatingSystem.IsLinux();
+            AddToSteamButton.IsEnabled = installed && RecompLinuxPaths.FindPlayExecutable() is not null;
             WiiCompiledVersionText.Text = t("helper_text.installed_version", installed ? t("state.loading") : t("state.unknown"));
             if (installed)
                 _ = RefreshWiiCompiledVersionAsync();
@@ -316,6 +322,35 @@ public partial class RecompSettings : UserControlBase
         var installFolder = RecompEnvironment?.InstallFolderPath ?? PathManager.RecompInstallFolderPath;
         if (Directory.Exists(installFolder))
             FilePickerHelper.OpenFolderInFileManager(installFolder);
+    }
+
+    private async void AddToSteam_OnClick(object? sender, RoutedEventArgs e)
+    {
+        if (SteamLibrary is null)
+            return;
+
+        var progressText = t("progress.adding_to_steam");
+        var progressWindow = new ProgressWindow(progressText).SetGoal(progressText).SetIndeterminate();
+        var progress = new Progress<string>(text => progressWindow.SetExtraText(text));
+
+        IsEnabled = false;
+        progressWindow.Show();
+        try
+        {
+            var result = await SteamLibrary.AddRetroRewindAsync(progress);
+            if (result.IsFailure)
+            {
+                MessageTranslationHelper.ShowMessage(result.Error);
+                return;
+            }
+
+            ViewUtils.ShowSnackbar(result.Value.AlreadyPresent ? t("status.steam_updated") : t("status.steam_added"));
+        }
+        finally
+        {
+            progressWindow.Close();
+            IsEnabled = true;
+        }
     }
 
     private async void Uninstall_OnClick(object? sender, RoutedEventArgs e)

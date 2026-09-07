@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Serilog;
 using WheelWizard.Helpers;
+using WheelWizard.Recomp;
 using WheelWizard.Settings;
 #if WINDOWS
 using Microsoft.Win32;
@@ -97,10 +98,13 @@ public static class PathManager
 
     public static string RecompCacheFolderPath => Path.Combine(RecompFolderPath, "Cache");
     public static string RecompInstallStateFilePath => Path.Combine(RecompInstallFolderPath, RecompInstallStateFileName);
-    public static string RecompSetupFilePath => Path.Combine(RecompInstallFolderPath, "WiiCompiled-Setup.exe");
+    public static string RecompSetupFilePath => Path.Combine(RecompInstallFolderPath, RecompLinuxPaths.SetupFileName);
 
     /// <summary>The backend-owned runtime user state (Config.toml, private NAND, caches) inside the portable root.</summary>
-    public static string RecompUserDataFolderPath => Path.Combine(RecompFolderPath, "UserData");
+    public static string RecompUserDataFolderPath =>
+        RecompLinuxPaths.FindOfficialConfigFile() is not null
+            ? RecompLinuxPaths.UserDataFolderPath
+            : Path.Combine(RecompFolderPath, "UserData");
 
     /// <summary>The recomp's own settings file, shared between Wheel Wizard and the in-game settings bar.</summary>
     public static string RecompConfigFilePath => Path.Combine(RecompUserDataFolderPath, "Config.toml");

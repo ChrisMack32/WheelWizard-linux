@@ -20,6 +20,7 @@ using WheelWizard.Services.Launcher;
 using WheelWizard.Services.LiveData;
 using WheelWizard.Settings;
 using WheelWizard.Shared.Services;
+using WheelWizard.Steam;
 using WheelWizard.WheelWizardData;
 using WheelWizard.WiiManagement;
 using WheelWizard.WiiManagement.MiiManagement;
@@ -51,6 +52,7 @@ public static class SetupExtensions
         services.AddPatches();
         services.AddMods();
         services.AddRecomp();
+        services.AddSteamLibrary();
 
         // IO Abstractions
         services.AddSingleton<IFileSystem, RealFileSystem>();

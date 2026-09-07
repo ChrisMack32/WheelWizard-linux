@@ -23,8 +23,7 @@ public interface IRecompInstallService : IDisposable
     bool IsInstalled { get; }
 
     /// <summary>
-    /// Runs the installed <c>WiiCompiled-Setup.exe --version</c> host and returns its semantic version.
-    /// WiiCompiled is Windows-only, so other platforms return <see langword="null"/>.
+    /// Runs the installed setup host with <c>--version</c> and returns its semantic version.
     /// </summary>
     Task<string?> GetInstalledVersionAsync(CancellationToken cancellationToken = default);
 
@@ -111,6 +110,7 @@ public sealed class RecompInstallService : IRecompInstallService
     private readonly IRecompProcessRunner processRunner;
     private readonly IRecompSetupDownloader downloader;
     private readonly IRecompRetroWfcPayloadProbe payloadProbe;
+    private readonly IRecompLinuxUpdateChecker linuxUpdateChecker;
     private readonly IGitHubSingletonService gitHubService;
     private readonly IFileSystem fileSystem;
     private readonly ILogger<RecompInstallService> logger;
@@ -126,6 +126,7 @@ public sealed class RecompInstallService : IRecompInstallService
         IRecompProcessRunner processRunner,
         IRecompSetupDownloader downloader,
         IRecompRetroWfcPayloadProbe payloadProbe,
+        IRecompLinuxUpdateChecker linuxUpdateChecker,
         IGitHubSingletonService gitHubService,
         IFileSystem fileSystem,
         ILogger<RecompInstallService> logger
@@ -135,6 +136,7 @@ public sealed class RecompInstallService : IRecompInstallService
         this.processRunner = processRunner;
         this.downloader = downloader;
         this.payloadProbe = payloadProbe;
+        this.linuxUpdateChecker = linuxUpdateChecker;
         this.gitHubService = gitHubService;
         this.fileSystem = fileSystem;
         this.logger = logger;
@@ -144,16 +146,21 @@ public sealed class RecompInstallService : IRecompInstallService
     // the race against the user's own click on the button that refresh is about to draw.
     public bool OperationInFlight => _operationGate.CurrentCount == 0;
 
-    public bool IsInstalled => fileSystem.File.Exists(environment.InstalledSetupFilePath);
+    public bool IsInstalled =>
+        fileSystem.File.Exists(environment.InstalledSetupFilePath) || environment.NativePlayExecutablePath is not null;
 
     public async Task<string?> GetInstalledVersionAsync(CancellationToken cancellationToken = default)
     {
-        if (!OperatingSystem.IsWindows() || !IsInstalled)
+        if (!IsInstalled)
+            return null;
+
+        var setupHost = ResolveSetupHost();
+        if (setupHost is null)
             return null;
 
         string? versionText = null;
         var runResult = await processRunner.RunAsync(
-            environment.InstalledSetupFilePath,
+            setupHost,
             RecompSetupCommandBuilder.BuildVersionArguments(),
             workingDirectory: null,
             line =>
@@ -169,6 +176,16 @@ public sealed class RecompInstallService : IRecompInstallService
 
     public async Task<WheelWizardStatus> GetCurrentStatusAsync(CancellationToken cancellationToken = default)
     {
+        if (environment.NativePlayExecutablePath is not null)
+        {
+            if (!IsGameFileConfigured())
+                return WheelWizardStatus.ConfigNotFinished;
+
+            var linuxInstalledVersion = await GetInstalledVersionAsync(cancellationToken);
+            var linuxOutOfDate = await linuxUpdateChecker.IsOutOfDateAsync(linuxInstalledVersion, cancellationToken);
+            return linuxOutOfDate == true ? WheelWizardStatus.OutOfDate : WheelWizardStatus.Ready;
+        }
+
         var state = ReadInstalledState();
         var hasInstalledHost = fileSystem.File.Exists(environment.InstalledSetupFilePath);
         if (hasInstalledHost && !IsCurrentInstallState(state))
@@ -378,10 +395,15 @@ public sealed class RecompInstallService : IRecompInstallService
         CancellationToken cancellationToken
     )
     {
-        // No platform guard here on purpose: AddRecomp() is the single gate, so this service only ever
-        // exists on Windows in the first place.
         if (!IsGameFileConfigured())
             return Fail(t("message_warning.not_find_game.extra"));
+
+        var linuxUpdater = RecompLinuxPaths.FindUpdateScript();
+        if (linuxUpdater is not null)
+            return await RunLinuxUpdaterAsync(linuxUpdater, progress, cancellationToken);
+
+        if (environment.NativePlayExecutablePath is not null)
+            return Ok();
 
         Report(progress, t("progress.recomp_checking_release"), 0);
         var state = ReadInstalledState();
@@ -444,6 +466,13 @@ public sealed class RecompInstallService : IRecompInstallService
     )
     {
         _launchReconciled = false;
+        if (environment.NativePlayExecutablePath is not null)
+        {
+            _launchReconciled = true;
+            Report(progress, t("progress.recomp_finished"), 100);
+            return Ok();
+        }
+
         if (!fileSystem.File.Exists(environment.InstalledSetupFilePath))
             return Fail("WiiCompiled is not installed yet.");
 
@@ -505,6 +534,24 @@ public sealed class RecompInstallService : IRecompInstallService
         var reconciled = _launchReconciled;
         _launchReconciled = false;
 
+        var nativePlay = environment.NativePlayExecutablePath;
+        if (nativePlay is not null)
+        {
+            if (!reconciled)
+                return Fail("WiiCompiled must complete its current pre-launch reconciliation before it can launch.");
+
+            var nativeLaunch = await processRunner.RunAsync(
+                nativePlay,
+                arguments: string.Empty,
+                Path.GetDirectoryName(nativePlay),
+                onStandardOutputLine: null,
+                cancellationToken
+            );
+            if (nativeLaunch.IsFailure)
+                return nativeLaunch.Error;
+            return nativeLaunch.Value == 0 ? Ok() : Fail($"WiiCompiled exited with code {nativeLaunch.Value}.");
+        }
+
         if (!fileSystem.File.Exists(environment.InstalledSetupFilePath))
             return Fail("WiiCompiled is not installed yet.");
         if (ReadCurrentInstallState() is null)
@@ -542,6 +589,13 @@ public sealed class RecompInstallService : IRecompInstallService
     private OperationResult UninstallCore()
     {
         _launchReconciled = false;
+
+        if (environment.NativePlayExecutablePath is not null)
+        {
+            return Fail(
+                "This WiiCompiled install is bundled with Wheel Wizard. Removing it from here would delete the game next to the app."
+            );
+        }
 
         // Only the recomp's own directories are removed. The shared Retro Rewind installation lives
         // outside them and survives on purpose: it belongs to WheelWizard's Dolphin frontend just as much.
@@ -617,7 +671,7 @@ public sealed class RecompInstallService : IRecompInstallService
         {
             if (!fileSystem.Directory.Exists(environment.CacheFolderPath))
                 return;
-            foreach (var candidate in fileSystem.Directory.EnumerateFiles(environment.CacheFolderPath, "WiiCompiled-Setup-*.exe"))
+            foreach (var candidate in fileSystem.Directory.EnumerateFiles(environment.CacheFolderPath, "WiiCompiled-Setup-*"))
             {
                 if (string.Equals(candidate, keepFilePath, StringComparison.OrdinalIgnoreCase))
                     continue;
@@ -995,7 +1049,43 @@ public sealed class RecompInstallService : IRecompInstallService
     private static string BuildCachedSetupFileName(string tagName)
     {
         var sanitized = new string(tagName.Select(character => char.IsLetterOrDigit(character) ? character : '-').ToArray());
-        return $"WiiCompiled-Setup-{sanitized}.exe";
+        var extension = OperatingSystem.IsLinux() ? "AppImage" : "exe";
+        return $"WiiCompiled-Setup-{sanitized}.{extension}";
+    }
+
+    private string? ResolveSetupHost()
+    {
+        if (fileSystem.File.Exists(environment.InstalledSetupFilePath))
+            return environment.InstalledSetupFilePath;
+
+        return RecompLinuxPaths.FindSetupHost();
+    }
+
+    private async Task<OperationResult> RunLinuxUpdaterAsync(
+        string updaterScriptPath,
+        IProgress<RecompInstallProgress>? progress,
+        CancellationToken cancellationToken
+    )
+    {
+        Report(progress, t("progress.updating_recomp"), SetupPercentFloor);
+        var runResult = await processRunner.RunAsync(
+            "/bin/bash",
+            $"\"{updaterScriptPath}\"",
+            Path.GetDirectoryName(updaterScriptPath),
+            line =>
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                    Report(progress, line, SetupPercentFloor);
+            },
+            cancellationToken
+        );
+        if (runResult.IsFailure)
+            return runResult.Error;
+        if (runResult.Value != 0)
+            return Fail($"The WiiCompiled updater exited with code {runResult.Value}.");
+
+        Report(progress, t("progress.recomp_finished"), 100);
+        return Ok();
     }
 
     private static void Report(IProgress<RecompInstallProgress>? progress, string message, int percent) =>

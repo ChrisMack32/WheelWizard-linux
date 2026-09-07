@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.IO.Abstractions;
-using System.Runtime.InteropServices;
 using WheelWizard.GitHub.Domain;
 using WheelWizard.Helpers;
 
@@ -10,17 +9,10 @@ public class LinuxUpdatePlatform(IFileSystem fileSystem) : IUpdatePlatform
 {
     public GithubAsset? GetAssetForCurrentPlatform(GithubRelease release)
     {
-        string identifier;
-        if (RuntimeInformation.ProcessArchitecture == Architecture.Arm || RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
-        {
-            identifier = "WheelWizard_arm64_Linux";
-        }
-        else
-        {
-            identifier = "WheelWizard_Linux";
-        }
-
-        return release.Assets.FirstOrDefault(asset => asset.BrowserDownloadUrl.Contains(identifier, StringComparison.OrdinalIgnoreCase));
+        // This Linux fork must not replace itself with an official Wheel Wizard build that
+        // still hides WiiCompiled. Updates stay manual.
+        _ = release;
+        return null;
     }
 
     public async Task<OperationResult> ExecuteUpdateAsync(string downloadUrl)

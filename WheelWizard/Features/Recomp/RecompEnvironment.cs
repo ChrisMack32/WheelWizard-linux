@@ -44,6 +44,12 @@ public interface IRecompEnvironment
 
     /// <summary>The Wheel Wizard-owned copy of the Dolphin NAND, whether or not it exists yet.</summary>
     string NandCopyFolderPath { get; }
+
+    /// <summary>
+    /// The already-compiled Linux Retro Rewind executable, when a native WiiCompiled install exists
+    /// outside Wheel Wizard's portable Windows layout.
+    /// </summary>
+    string? NativePlayExecutablePath { get; }
 }
 
 /// <inheritdoc />
@@ -51,7 +57,8 @@ public sealed class RecompEnvironment(IFileSystem fileSystem) : IRecompEnvironme
 {
     public string GameFilePath => PathManager.GameFilePath;
 
-    public string InstallFolderPath => PathManager.RecompInstallFolderPath;
+    public string InstallFolderPath =>
+        RecompLinuxPaths.GamesRootPathIfPresent() ?? RecompLinuxPaths.FindPlayWorkingDirectory() ?? PathManager.RecompInstallFolderPath;
 
     public bool IsPortableInstall => PathManager.IsRecompInstallPortable;
 
@@ -65,9 +72,11 @@ public sealed class RecompEnvironment(IFileSystem fileSystem) : IRecompEnvironme
 
     public string InstalledSetupFilePath => PathManager.RecompSetupFilePath;
 
-    public string? RetroRewindFolderPath => ExistingFolderOrNull(PathManager.RetroRewind6FolderPath);
+    public string? RetroRewindFolderPath => RecompLinuxPaths.FindRetroRewind6() ?? ExistingFolderOrNull(PathManager.RetroRewind6FolderPath);
 
     public string NandCopyFolderPath => PathManager.RecompNandCopyFolderPath;
+
+    public string? NativePlayExecutablePath => RecompLinuxPaths.FindPlayExecutable();
 
     private string? ExistingFolderOrNull(string path)
     {

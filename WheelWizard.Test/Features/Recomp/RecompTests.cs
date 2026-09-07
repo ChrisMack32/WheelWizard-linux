@@ -130,6 +130,29 @@ public class RecompTests
     }
 
     [Fact]
+    public void RetroRewindVersionList_UsesTheLastNumericLine()
+    {
+        var latest = RecompLinuxUpdateChecker.ReadLatestVersionToken(
+            """
+            6.12.6
+            6.12.7 extra
+            notes
+            """
+        );
+
+        Assert.Equal("6.12.7", latest);
+    }
+
+    [Fact]
+    public void SetupFileName_MatchesTheCurrentPlatformAsset()
+    {
+        if (OperatingSystem.IsLinux())
+            Assert.Equal("WiiCompiled-Setup-x86_64.AppImage", RecompSetupCommandBuilder.SetupFileName);
+        else
+            Assert.Equal("WiiCompiled-Setup.exe", RecompSetupCommandBuilder.SetupFileName);
+    }
+
+    [Fact]
     public void Status_IsOnlyReadyWhenTheInstallWasActuallyVerified()
     {
         var current = new RecompProductStatus(RecompProductState.Current, "ok");

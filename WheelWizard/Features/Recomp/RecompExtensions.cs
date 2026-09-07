@@ -7,12 +7,13 @@ public static class RecompExtensions
 {
     /// <summary>
     /// Registers the Mario Kart Wii recomp frontend.
-    /// The recomp only ships for Windows, so on every other platform nothing is registered at all;
-    /// <c>ISettingsManager.IsRecompModeActive()</c> is false there, so nothing ever resolves these.
+    /// Windows uses the official setup-host contract. Linux is supported here as well: it launches a
+    /// native WiiCompiled install when one is already present, and still falls back to the AppImage
+    /// host for a from-scratch setup.
     /// </summary>
     public static IServiceCollection AddRecomp(this IServiceCollection services)
     {
-        if (!OperatingSystem.IsWindows())
+        if (!RecompLinuxPaths.IsSupported)
             return services;
 
         services
@@ -32,6 +33,7 @@ public static class RecompExtensions
         services.AddSingleton<IRecompProcessRunner, RecompProcessRunner>();
         services.AddSingleton<IRecompSetupDownloader, RecompSetupDownloader>();
         services.AddSingleton<IRecompRetroWfcPayloadProbe, RecompRetroWfcPayloadProbe>();
+        services.AddSingleton<IRecompLinuxUpdateChecker, RecompLinuxUpdateChecker>();
         services.AddSingleton<IRecompInstallService, RecompInstallService>();
         services.AddTransient<RecompLauncher>();
 

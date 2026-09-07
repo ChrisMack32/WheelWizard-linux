@@ -9,9 +9,16 @@ namespace WheelWizard.Recomp;
 public static class RecompSetupCommandBuilder
 {
     /// <summary>
-    /// The name of the setup asset on every recomp GitHub release, and of the launcher copy inside the install dir.
+    /// The Windows setup asset name. Linux releases ship <c>WiiCompiled-Setup-x86_64.AppImage</c> instead;
+    /// see <see cref="RecompLinuxPaths.SetupFileName"/>.
     /// </summary>
-    public const string SetupFileName = "WiiCompiled-Setup.exe";
+    public const string WindowsSetupFileName = "WiiCompiled-Setup.exe";
+
+    /// <summary>
+    /// The name of the setup asset on the current platform's recomp GitHub release, and of the launcher
+    /// copy inside the install dir.
+    /// </summary>
+    public static string SetupFileName => RecompLinuxPaths.SetupFileName;
 
     /// <summary>
     /// Builds the arguments for a silent install, which doubles as the in-place upgrade command.

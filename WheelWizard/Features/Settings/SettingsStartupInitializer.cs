@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using WheelWizard.Recomp;
 
 namespace WheelWizard.Settings;
 
@@ -14,6 +15,7 @@ public sealed class SettingsStartupInitializer(
         SettingsSignalRuntime.Initialize(settingsSignalBus);
         SettingsRuntime.Initialize(settingsManager);
         settingsManager.LoadSettings();
+        RecompLinuxBootstrap.Seed(settingsManager);
         localizationService.Initialize();
 
         var reportResult = settingsManager.ValidateCorePathSettings();

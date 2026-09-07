@@ -47,6 +47,7 @@ public sealed class RecompProcessRunner(ILogger<RecompProcessRunner> logger) : I
                 OperatingSystem.IsWindows() && cancellationToken.CanBeCanceled
                     ? new EventWaitHandle(initialState: false, EventResetMode.ManualReset, cancellationEventName)
                     : null;
+            EnsureUnixExecutable(fileName);
             var startInfo = CreateStartInfo(fileName, arguments, workingDirectory);
             if (cancellationEvent is not null)
                 startInfo.Environment[CancellationEventEnvironmentVariable] = cancellationEventName;
@@ -101,6 +102,25 @@ public sealed class RecompProcessRunner(ILogger<RecompProcessRunner> logger) : I
         {
             logger.LogError(exception, "Failed to run '{FileName}'", fileName);
             return Fail(exception);
+        }
+    }
+
+    private static void EnsureUnixExecutable(string fileName)
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+            return;
+        if (fileName is "/bin/bash" or "/usr/bin/env" || fileName.Contains('/', StringComparison.Ordinal) is false)
+            return;
+
+        try
+        {
+            var mode = File.GetUnixFileMode(fileName);
+            if (!mode.HasFlag(UnixFileMode.UserExecute))
+                File.SetUnixFileMode(fileName, mode | UnixFileMode.UserExecute);
+        }
+        catch (Exception)
+        {
+            // Launch still proceeds; a missing execute bit surfaces as a start failure.
         }
     }
 

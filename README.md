@@ -8,6 +8,10 @@
 
 <p align="center"><a href="https://github.com/TeamWheelWizard/WheelWizard">Wheel wizard</a> by <span>Patchzy and WantToBeeMe</span> is licensed under <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="license noopener noreferrer" style="display:inline-block;">GNU General Public License v3.0</a></p>
 
+> **This is a Linux / Steam Deck fork** of official [TeamWheelWizard/WheelWizard](https://github.com/TeamWheelWizard/WheelWizard).
+> It can launch native **WiiCompiled** Retro Rewind (not Dolphin), check WiiCompiled/RR updates, and add Retro Rewind to Steam with SteamGridDB artwork.
+> **Mario Kart Wii is not included.** You must supply your own legal dump (WBFS/ISO/RVZ). Do not open a pull request that adds a ROM.
+
 # Wheel Wizard
 
 <p align="center">
@@ -17,6 +21,40 @@
 ## Mario Kart Mod Manager & Retro Rewind Auto Updater
 
 Wheel Wizard, our mod manager, is created for the sole purpose of convenience. Technically, these mods and Retro Rewind are all doable without this app, but this app makes it possible with just a few clicks. It still has a lot of features in the planning stage and is fully in development, so keep an eye out for updates.
+
+## This fork (Linux / Steam Deck)
+
+Official Wheel Wizard still targets Windows for WiiCompiled. This fork keeps that code and adds Linux support:
+
+- Play uses a native WiiCompiled `RetroRewind` binary when one is installed
+- Settings can add that native launch to Steam (not Wheel Wizard itself) and fetch Retro Rewind artwork
+- Official auto-update is disabled on Linux so an official Windows build cannot overwrite this fork
+- The official Flatpak (`io.github.TeamWheelWizard.WheelWizard`) is unchanged and is not this build
+
+### What you need
+
+1. A legal Mario Kart Wii dump you already own
+2. A WiiCompiled + Retro Rewind install (this repo is only the manager, not the game)
+3. [.NET 10 SDK](https://dotnet.microsoft.com/download) to build from source
+
+Typical layout next to the published app:
+
+```
+WheelWizard/                 # this program
+WiiCompiled/play/RetroRewind # native game
+WiiCompiled/rom/             # your dump goes here; never commit it
+```
+
+### Build on SteamOS / Linux
+
+```bash
+export DOTNET_ROOT="$HOME/.dotnet"
+export PATH="$DOTNET_ROOT:$PATH"
+dotnet test WheelWizard.Test/WheelWizard.Test.csproj -c Release
+dotnet publish WheelWizard/WheelWizard.csproj -c Release -r linux-x64 --self-contained true -o "$HOME/Games/WheelWizard"
+```
+
+Publish into an existing folder is safe: it replaces the app binaries and leaves a sibling `WiiCompiled` tree alone.
 
 ## Free and Open Source
 

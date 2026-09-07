@@ -207,7 +207,7 @@
                     </Grid>
                 </Border>
 
-                <Border Classes="SettingsBlockStyle SettingsRowStyle SettingsRowBottom">
+                <Border Classes="SettingsBlockStyle SettingsRowStyle SettingsRowMiddle">
                     <Grid ColumnDefinitions="*,Auto" MinHeight="40">
                         <StackPanel Grid.Column="0"
                                     Margin="0,0,16,0"
@@ -229,6 +229,33 @@
                                            HorizontalAlignment="Right"
                                            VerticalAlignment="Center"
                                            Click="Uninstall_OnClick" />
+                    </Grid>
+                </Border>
+
+                <Border x:Name="AddToSteamRow"
+                        Classes="SettingsBlockStyle SettingsRowStyle SettingsRowBottom"
+                        IsVisible="False">
+                    <Grid ColumnDefinitions="*,Auto" MinHeight="40">
+                        <StackPanel Grid.Column="0"
+                                    Margin="0,0,16,0"
+                                    Spacing="3"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center">
+                            <components:FormFieldLabel Text="{loc:T option.add_retro_rewind_to_steam}" />
+                            <SelectableTextBlock Classes="TinyText"
+                                                 Text="{loc:T helper_text.add_retro_rewind_to_steam}"
+                                                 TextAlignment="Left"
+                                                 TextWrapping="Wrap" />
+                        </StackPanel>
+                        <components:Button Grid.Column="1"
+                                           x:Name="AddToSteamButton"
+                                           Variant="Primary"
+                                           ButtonSize="Compact"
+                                           IconData="{StaticResource PlusMark}"
+                                           Text="{loc:T action.add_to_steam}"
+                                           HorizontalAlignment="Right"
+                                           VerticalAlignment="Center"
+                                           Click="AddToSteam_OnClick" />
                     </Grid>
                 </Border>
             </StackPanel>

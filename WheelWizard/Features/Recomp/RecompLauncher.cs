@@ -120,6 +120,15 @@ public class RecompLauncher(
 
         try
         {
+            // A native Linux WiiCompiled build already includes Retro Rewind. Don't block Play on
+            // Wheel Wizard's separate Dolphin RR package being present in the Load folder.
+            if (installService.IsInstalled)
+            {
+                var nativeStatus = await installService.GetCurrentStatusAsync();
+                if (nativeStatus is not WheelWizardStatus.NotInstalled)
+                    return nativeStatus;
+            }
+
             var retroRewindStatus = await customDistributions.RetroRewind.GetCurrentStatusAsync();
             if (retroRewindStatus.IsFailure)
                 return WheelWizardStatus.NoServer;

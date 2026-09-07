@@ -9,14 +9,10 @@ public static class AutoUpdatingExtensions
         services.AddSingleton<IAutoUpdaterSingletonService, AutoUpdaterSingletonService>();
 
         var implementationType = typeof(FallbackUpdatePlatform);
-#if WINDOWS
-        implementationType = typeof(WindowsUpdatePlatform);
-#elif LINUX
-        // We can enable this again once the auto updater has been fixed and tested
-        implementationType = typeof(LinuxUpdatePlatform);
-#elif MACOS
-        // MacOS updater
-#endif
+        if (OperatingSystem.IsWindows())
+            implementationType = typeof(WindowsUpdatePlatform);
+        else if (OperatingSystem.IsLinux())
+            implementationType = typeof(LinuxUpdatePlatform);
 
         services.AddSingleton(typeof(IUpdatePlatform), implementationType);
 

@@ -3,6 +3,15 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+# Game dumps — never commit Mario Kart Wii images
+*.wbfs
+*.iso
+*.rvz
+*.wia
+*.gcz
+*.ciso
+*.gcm
+
 # dotenv files
 .env
 
