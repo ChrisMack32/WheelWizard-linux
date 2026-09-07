@@ -73,17 +73,24 @@ public sealed class RecompLinuxNativeInstaller(
 
         await TryInstallDistroboxAsync(progress, cancellationToken);
 
+        var immutableHost = RecompLinuxCompileHost.IsImmutableLinux();
         var useDistrobox = false;
         if (RecompLinuxCompileHost.CanUseDistrobox())
         {
             var compileReady = await EnsureCompileHostAsync(progress, cancellationToken);
             if (compileReady.IsSuccess)
                 useDistrobox = true;
+            else if (immutableHost)
+                return compileReady.Error;
             else
                 logger.LogWarning(
                     "Distrobox compile environment is unavailable; compiling on the host instead. {Error}",
                     compileReady.Error
                 );
+        }
+        else if (immutableHost)
+        {
+            return Fail(t("message_error.recomp_immutable_distrobox_required"));
         }
 
         var installArguments = RecompLinuxCompileHost.BuildAppRunInstallArguments(
@@ -102,7 +109,7 @@ public sealed class RecompLinuxNativeInstaller(
                 var distroResult = await RunCompiledSetupAsync(
                     distrobox,
                     RecompLinuxCompileHost.BuildDistroboxEnterArguments(appRun, installArguments),
-                    extraEnvironment: null,
+                    RecompLinuxCompileHost.UserToolEnvironment(),
                     progress,
                     cancellationToken
                 );
@@ -112,6 +119,9 @@ public sealed class RecompLinuxNativeInstaller(
                     Report(progress, t("progress.recomp_finished"), 100);
                     return Ok();
                 }
+
+                if (immutableHost)
+                    return Fail(t("message_error.recomp_distrobox_compile_failed"));
 
                 logger.LogWarning("Distrobox compile failed; compiling on the host instead. {Error}", distroResult.Error);
             }
@@ -346,16 +356,25 @@ public sealed class RecompLinuxNativeInstaller(
 
     private async Task TryInstallDistroboxAsync(IProgress<RecompInstallProgress>? progress, CancellationToken cancellationToken)
     {
-        if (RecompLinuxCompileHost.FindDistroboxExecutable() is not null)
+        if (RecompLinuxCompileHost.CanUseDistrobox())
             return;
-
-        if (RecompLinuxCompileHost.FindContainerRuntime() is null)
-        {
-            logger.LogInformation("Distrobox was not installed because Podman or Docker is not available.");
-            return;
-        }
 
         Report(progress, t("progress.recomp_preparing_compile"), 29);
+        if (RecompLinuxCompileHost.FindDistroboxExecutable() is null)
+            await InstallDistroboxScriptsAsync(cancellationToken);
+
+        if (RecompLinuxCompileHost.FindContainerRuntime() is null)
+            await InstallPodmanLauncherAsync(cancellationToken);
+
+        if (RecompLinuxCompileHost.CanUseDistrobox())
+            return;
+
+        if (RecompLinuxCompileHost.IsSteamOs())
+            await InstallSteamOsDistroboxInTerminalAsync(progress, cancellationToken);
+    }
+
+    private async Task InstallDistroboxScriptsAsync(CancellationToken cancellationToken)
+    {
         var binDirectory = RecompLinuxCompileHost.UserInstallBinDirectory();
         fileSystem.Directory.CreateDirectory(binDirectory);
         var workFolder = fileSystem.Path.Combine(environment.CacheFolderPath, "distrobox-install");
@@ -372,7 +391,7 @@ public sealed class RecompLinuxNativeInstaller(
         );
         if (downloadResult.IsFailure)
         {
-            logger.LogWarning("Could not download Distrobox; compiling on the host instead.");
+            logger.LogWarning("Could not download Distrobox.");
             return;
         }
 
@@ -388,7 +407,7 @@ public sealed class RecompLinuxNativeInstaller(
         );
         if (extract.IsFailure || extract.Value != 0)
         {
-            logger.LogWarning("Could not extract Distrobox; compiling on the host instead.");
+            logger.LogWarning("Could not extract Distrobox.");
             return;
         }
 
@@ -405,6 +424,57 @@ public sealed class RecompLinuxNativeInstaller(
 
         if (RecompLinuxCompileHost.FindDistroboxExecutable() is null)
             logger.LogWarning("Distrobox scripts were copied, but the distrobox command is still missing.");
+    }
+
+    private async Task InstallPodmanLauncherAsync(CancellationToken cancellationToken)
+    {
+        var url = RecompLinuxCompileHost.PodmanLauncherDownloadUrl();
+        if (url is null)
+        {
+            logger.LogWarning("No Podman launcher is available for this CPU.");
+            return;
+        }
+
+        var binDirectory = RecompLinuxCompileHost.UserInstallBinDirectory();
+        fileSystem.Directory.CreateDirectory(binDirectory);
+        var destination = fileSystem.Path.Combine(binDirectory, "podman");
+        var downloadPath = fileSystem.Path.Combine(environment.CacheFolderPath, "podman-launcher");
+        var downloadResult = await downloader.DownloadAsync(url, downloadPath, progress: null, cancellationToken);
+        if (downloadResult.IsFailure)
+        {
+            logger.LogWarning("Could not download Podman.");
+            return;
+        }
+
+        fileSystem.File.Copy(downloadPath, destination, overwrite: true);
+        TryMarkUnixExecutable(destination);
+    }
+
+    private async Task InstallSteamOsDistroboxInTerminalAsync(
+        IProgress<RecompInstallProgress>? progress,
+        CancellationToken cancellationToken
+    )
+    {
+        var terminal = RecompLinuxCompileHost.FindTerminalExecutable();
+        if (terminal is null)
+        {
+            logger.LogWarning("No terminal is available to install Distrobox on SteamOS.");
+            return;
+        }
+
+        Report(progress, t("progress.recomp_opening_distrobox_terminal"), 30);
+        var scriptPath = fileSystem.Path.Combine(environment.CacheFolderPath, "install-steamos-distrobox.sh");
+        fileSystem.File.WriteAllText(scriptPath, RecompLinuxCompileHost.SteamOsDistroboxInstallScript());
+        TryMarkUnixExecutable(scriptPath);
+
+        var run = await processRunner.RunVisibleAsync(
+            terminal,
+            RecompLinuxCompileHost.BuildTerminalRunArguments(terminal, scriptPath),
+            workingDirectory: null,
+            cancellationToken
+        );
+        if (run.IsFailure || run.Value != 0)
+            logger.LogWarning("The SteamOS Distrobox terminal installer did not finish successfully.");
     }
 
     private static void TryMarkUnixExecutable(string filePath)
@@ -432,13 +502,14 @@ public sealed class RecompLinuxNativeInstaller(
         if (distrobox is null)
             return Ok();
 
+        var toolEnvironment = RecompLinuxCompileHost.UserToolEnvironment();
         var listOutput = new System.Text.StringBuilder();
         var listResult = await processRunner.RunAsync(
             distrobox,
             ["list"],
             workingDirectory: null,
             line => listOutput.AppendLine(line),
-            extraEnvironment: null,
+            toolEnvironment,
             cancellationToken
         );
         if (listResult.IsFailure)
@@ -452,7 +523,7 @@ public sealed class RecompLinuxNativeInstaller(
                 RecompLinuxCompileHost.BuildCreateArguments(),
                 workingDirectory: null,
                 onStandardOutputLine: null,
-                extraEnvironment: null,
+                toolEnvironment,
                 cancellationToken
             );
             if (createResult.IsFailure)
@@ -467,7 +538,7 @@ public sealed class RecompLinuxNativeInstaller(
             RecompLinuxCompileHost.BuildEnsureCompilerArguments(),
             workingDirectory: null,
             onStandardOutputLine: null,
-            extraEnvironment: null,
+            toolEnvironment,
             cancellationToken
         );
         if (packages.IsFailure)

@@ -273,6 +273,7 @@ en:
     recomp_downloading_setup: "Downloading the WiiCompiled installer"
     recomp_running_setup: "Running the WiiCompiled installer"
     recomp_preparing_compile: "Preparing the compile environment"
+    recomp_opening_distrobox_terminal: "Opening a terminal to install Distrobox"
     recomp_finished: "WiiCompiled is ready to play"
     recomp_copying_nand: "Copying your Dolphin data"
   question:
@@ -460,6 +461,8 @@ en:
       title: "Failed to install Dolphin"
       extra: "The installation of Dolphin Emulator failed. Please try manually installing Flatpak Dolphin."
     recomp_host_compile_failed: "The WiiCompiled compile failed. Press Install again — Wheel Wizard retries the compile inside the app. You do not need to install extra tools."
+    recomp_immutable_distrobox_required: "This Linux system is read-only, so WiiCompiled has to compile inside Distrobox. Wheel Wizard tried to install Distrobox and Podman. If a terminal opened, enter your password there, then press Install again."
+    recomp_distrobox_compile_failed: "The WiiCompiled compile failed inside Distrobox. Check your internet connection and press Install again."
     failed_retrieve_mod:
       title: "Failed to retrieve mod info"
     mod_download_fail:

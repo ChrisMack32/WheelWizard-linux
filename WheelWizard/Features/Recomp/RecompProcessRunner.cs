@@ -33,6 +33,16 @@ public interface IRecompProcessRunner
         IReadOnlyDictionary<string, string>? extraEnvironment = null,
         CancellationToken cancellationToken = default
     );
+
+    /// <summary>
+    /// Runs a process in a visible window so the user can type a sudo password.
+    /// </summary>
+    Task<OperationResult<int>> RunVisibleAsync(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        string? workingDirectory,
+        CancellationToken cancellationToken = default
+    );
 }
 
 /// <inheritdoc />
@@ -64,6 +74,43 @@ public sealed class RecompProcessRunner(ILogger<RecompProcessRunner> logger) : I
             onStandardOutputLine,
             cancellationToken
         );
+
+    public async Task<OperationResult<int>> RunVisibleAsync(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        string? workingDirectory,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var startInfo = CreateBaseStartInfo(fileName, workingDirectory);
+        startInfo.CreateNoWindow = false;
+        startInfo.RedirectStandardOutput = false;
+        startInfo.RedirectStandardError = false;
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsureUnixExecutable(fileName);
+            using var process = Process.Start(startInfo);
+            if (process is null)
+                return Fail($"Could not start '{fileName}'.");
+
+            await process.WaitForExitAsync(cancellationToken);
+            process.WaitForExit();
+            return Ok(process.ExitCode);
+        }
+        catch (OperationCanceledException)
+        {
+            return Fail("The operation was cancelled.");
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to run visible process '{FileName}'", fileName);
+            return Fail(exception);
+        }
+    }
 
     private async Task<OperationResult<int>> RunCoreAsync(
         ProcessStartInfo startInfo,

@@ -122,6 +122,41 @@ public class RecompTests
     }
 
     [Fact]
+    public void LinuxCompileHost_TreatsSteamOsAsImmutableAndInstallsDistroboxThere()
+    {
+        var steamOs = RecompLinuxCompileHost.ParseOsRelease(
+            """
+            ID=steamos
+            VARIANT_ID=steamdeck
+            VERSION_ID=3.8.26
+            """
+        );
+        var ubuntu = RecompLinuxCompileHost.ParseOsRelease("ID=ubuntu\nVERSION_ID=\"24.04\"");
+
+        Assert.Equal("steamos", steamOs["ID"]);
+        Assert.True(RecompLinuxCompileHost.OsReleaseIsImmutable(steamOs));
+        Assert.False(RecompLinuxCompileHost.OsReleaseIsImmutable(ubuntu));
+        Assert.True(RecompLinuxCompileHost.IsImmutableLinux(path => path == "/usr/bin/steamos-readonly", ubuntu));
+        Assert.True(RecompLinuxCompileHost.IsSteamOs(path => path == "/usr/bin/steamos-readonly", ubuntu));
+        Assert.False(RecompLinuxCompileHost.IsSteamOs(_ => false, ubuntu));
+        Assert.False(RecompLinuxCompileHost.IsImmutableLinux(_ => false, ubuntu));
+
+        Assert.Contains(
+            "podman-launcher-amd64",
+            RecompLinuxCompileHost.PodmanLauncherDownloadUrl(System.Runtime.InteropServices.Architecture.X64)
+        );
+        Assert.Equal(
+            ["-e", "/bin/bash", "/tmp/install-steamos-distrobox.sh"],
+            RecompLinuxCompileHost.BuildTerminalRunArguments("/usr/bin/konsole", "/tmp/install-steamos-distrobox.sh")
+        );
+
+        var script = RecompLinuxCompileHost.SteamOsDistroboxInstallScript();
+        Assert.Contains("steamos-readonly disable", script);
+        Assert.Contains("steamos-readonly enable", script);
+        Assert.Contains("distrobox podman", script);
+    }
+
+    [Fact]
     public void LinuxLinkerLibraries_SelectTheUbuntuLibsTheAppImageLinkerNeeds()
     {
         Assert.True(RecompLinuxLinkerLibraries.ShouldCopyLibraryFile("libxml2.so.2"));
