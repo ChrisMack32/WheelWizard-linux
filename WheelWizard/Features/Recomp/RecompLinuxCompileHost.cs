@@ -3,9 +3,9 @@ using WheelWizard.Recomp.Domain;
 namespace WheelWizard.Recomp;
 
 /// <summary>
-/// How Linux actually compiles WiiCompiled. The official AppImage toolchain's linker needs
-/// Ubuntu's <c>libxml2.so.2</c> and GCC runtime, which SteamOS does not ship. Distrobox is the
-/// same environment <c>update-all.sh</c> already uses.
+/// How Linux actually compiles WiiCompiled. The official AppImage already has clang and ninja;
+/// the linker still wants Ubuntu's <c>libxml2.so.2</c>, and some hosts have no GCC runtime.
+/// Distrobox is an optional compile environment — never something the user has to set up.
 /// </summary>
 public static class RecompLinuxCompileHost
 {
@@ -37,6 +37,59 @@ public static class RecompLinuxCompileHost
         fileExists ??= File.Exists;
         return DistroboxSearchPaths().FirstOrDefault(fileExists);
     }
+
+    public static string UserInstallBinDirectory()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return string.IsNullOrWhiteSpace(home) ? Path.Combine(".local", "bin") : Path.Combine(home, ".local", "bin");
+    }
+
+    public const string DistroboxReleaseArchiveUrl = "https://github.com/89luca89/distrobox/archive/refs/tags/1.8.2.5.tar.gz";
+
+    public static bool IsDistroboxScript(string fileName)
+    {
+        return fileName.Equals("distrobox", StringComparison.Ordinal)
+            || (fileName.StartsWith("distrobox-", StringComparison.Ordinal) && !fileName.Contains('.', StringComparison.Ordinal));
+    }
+
+    public static IReadOnlyList<string> ContainerRuntimeSearchPaths()
+    {
+        var names = new[] { "podman", "docker" };
+        var paths = new List<string>();
+        foreach (var name in names)
+        {
+            paths.Add($"/usr/bin/{name}");
+            paths.Add($"/usr/local/bin/{name}");
+        }
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(home))
+        {
+            foreach (var name in names)
+                paths.Add(Path.Combine(home, ".local", "bin", name));
+        }
+
+        var pathEnvironment = Environment.GetEnvironmentVariable("PATH");
+        if (!string.IsNullOrWhiteSpace(pathEnvironment))
+        {
+            foreach (var directory in pathEnvironment.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                foreach (var name in names)
+                    paths.Add(Path.Combine(directory, name));
+            }
+        }
+
+        return paths;
+    }
+
+    public static string? FindContainerRuntime(Func<string, bool>? fileExists = null)
+    {
+        fileExists ??= File.Exists;
+        return ContainerRuntimeSearchPaths().FirstOrDefault(fileExists);
+    }
+
+    public static bool CanUseDistrobox(Func<string, bool>? fileExists = null) =>
+        FindDistroboxExecutable(fileExists) is not null && FindContainerRuntime(fileExists) is not null;
 
     public static string AppRunPath(string root) => Path.Combine(root, "setup", "AppRun");
 

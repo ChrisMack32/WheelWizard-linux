@@ -272,6 +272,7 @@ en:
     recomp_checking_release: "Looking for the latest WiiCompiled release"
     recomp_downloading_setup: "Downloading the WiiCompiled installer"
     recomp_running_setup: "Running the WiiCompiled installer"
+    recomp_preparing_compile: "Preparing the compile environment"
     recomp_finished: "WiiCompiled is ready to play"
     recomp_copying_nand: "Copying your Dolphin data"
   question:
@@ -458,7 +459,7 @@ en:
     failed_install_dolphin:
       title: "Failed to install Dolphin"
       extra: "The installation of Dolphin Emulator failed. Please try manually installing Flatpak Dolphin."
-    recomp_host_compile_failed: "The WiiCompiled compile failed on SteamOS because the bundled linker needs libxml2.so.2. Wheel Wizard now downloads that library on this Install. If you still see this, install Distrobox and Podman from Discover, then press Install again."
+    recomp_host_compile_failed: "The WiiCompiled compile failed. Press Install again — Wheel Wizard retries the compile inside the app. You do not need to install extra tools."
     failed_retrieve_mod:
       title: "Failed to retrieve mod info"
     mod_download_fail:

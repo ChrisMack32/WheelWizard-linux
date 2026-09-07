@@ -113,6 +113,12 @@ public class RecompTests
             RecompLinuxCompileHost.FindDistroboxExecutable(path => path.EndsWith(".local/bin/distrobox"))
         );
         Assert.Null(RecompLinuxCompileHost.FindDistroboxExecutable(_ => false));
+        Assert.True(RecompLinuxCompileHost.IsDistroboxScript("distrobox"));
+        Assert.True(RecompLinuxCompileHost.IsDistroboxScript("distrobox-enter"));
+        Assert.False(RecompLinuxCompileHost.IsDistroboxScript("distrobox.1"));
+        Assert.Equal("/usr/bin/podman", RecompLinuxCompileHost.FindContainerRuntime(path => path == "/usr/bin/podman"));
+        Assert.True(RecompLinuxCompileHost.CanUseDistrobox(path => path is "/usr/bin/distrobox" or "/usr/bin/podman"));
+        Assert.False(RecompLinuxCompileHost.CanUseDistrobox(path => path == "/usr/bin/distrobox"));
     }
 
     [Fact]

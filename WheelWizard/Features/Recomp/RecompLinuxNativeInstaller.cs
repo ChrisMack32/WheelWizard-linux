@@ -71,9 +71,20 @@ public sealed class RecompLinuxNativeInstaller(
         if (setupResult.IsFailure)
             return setupResult.Error;
 
-        var compileReady = await EnsureCompileHostAsync(progress, cancellationToken);
-        if (compileReady.IsFailure)
-            return compileReady.Error;
+        await TryInstallDistroboxAsync(progress, cancellationToken);
+
+        var useDistrobox = false;
+        if (RecompLinuxCompileHost.CanUseDistrobox())
+        {
+            var compileReady = await EnsureCompileHostAsync(progress, cancellationToken);
+            if (compileReady.IsSuccess)
+                useDistrobox = true;
+            else
+                logger.LogWarning(
+                    "Distrobox compile environment is unavailable; compiling on the host instead. {Error}",
+                    compileReady.Error
+                );
+        }
 
         var installArguments = RecompLinuxCompileHost.BuildAppRunInstallArguments(
             environment.GameFilePath,
@@ -82,56 +93,46 @@ public sealed class RecompLinuxNativeInstaller(
             payloadMode
         );
         var appRun = RecompLinuxCompileHost.AppRunPath(root);
-        string fileName;
-        IReadOnlyList<string> arguments;
-        IReadOnlyDictionary<string, string>? extraEnvironment = null;
-        var distrobox = RecompLinuxCompileHost.FindDistroboxExecutable();
-        if (distrobox is not null)
+
+        if (useDistrobox)
         {
-            fileName = distrobox;
-            arguments = RecompLinuxCompileHost.BuildDistroboxEnterArguments(appRun, installArguments);
+            var distrobox = RecompLinuxCompileHost.FindDistroboxExecutable();
+            if (distrobox is not null)
+            {
+                var distroResult = await RunCompiledSetupAsync(
+                    distrobox,
+                    RecompLinuxCompileHost.BuildDistroboxEnterArguments(appRun, installArguments),
+                    extraEnvironment: null,
+                    progress,
+                    cancellationToken
+                );
+                if (distroResult.IsSuccess && RecompLinuxPaths.FindPlayExecutable() is not null)
+                {
+                    PublishSetupHost(root, setupResult.Value);
+                    Report(progress, t("progress.recomp_finished"), 100);
+                    return Ok();
+                }
+
+                logger.LogWarning("Distrobox compile failed; compiling on the host instead. {Error}", distroResult.Error);
+            }
         }
-        else
-        {
-            var linkerLibs = await EnsureLinkerLibrariesAsync(progress, cancellationToken);
-            if (linkerLibs.IsFailure)
-                return linkerLibs.Error;
 
-            fileName = setupResult.Value;
-            arguments = RecompLinuxSetupArgs.BuildInstallArguments(environment.GameFilePath, playFolder, retroDirResult.Value, payloadMode);
-            extraEnvironment = string.IsNullOrWhiteSpace(linkerLibs.Value)
-                ? RecompLinuxSetupArgs.AppImageEnvironment
-                : RecompLinuxLinkerLibraries.WithLibraryPath(RecompLinuxSetupArgs.AppImageEnvironment, linkerLibs.Value);
-        }
+        var linkerLibs = await EnsureLinkerLibrariesAsync(progress, cancellationToken);
+        if (linkerLibs.IsFailure)
+            return linkerLibs.Error;
 
-        logger.LogInformation("Running the Linux WiiCompiled installer: {Setup} {Arguments}", fileName, string.Join(' ', arguments));
-
-        Report(progress, t("progress.recomp_running_setup"), 35);
-        var resultHolder = new ResultHolder();
-        var runResult = await processRunner.RunAsync(
-            fileName,
-            arguments,
-            fileSystem.Path.GetDirectoryName(fileName),
-            line => HandleOutput(line, progress, resultHolder),
+        var extraEnvironment = string.IsNullOrWhiteSpace(linkerLibs.Value)
+            ? RecompLinuxSetupArgs.AppImageEnvironment
+            : RecompLinuxLinkerLibraries.WithLibraryPath(RecompLinuxSetupArgs.AppImageEnvironment, linkerLibs.Value);
+        var hostResult = await RunCompiledSetupAsync(
+            setupResult.Value,
+            RecompLinuxSetupArgs.BuildInstallArguments(environment.GameFilePath, playFolder, retroDirResult.Value, payloadMode),
             extraEnvironment,
+            progress,
             cancellationToken
         );
-        if (runResult.IsFailure)
-            return runResult.Error;
-
-        if (resultHolder.Error is not null)
-            return Fail(ExplainCompileFailure(resultHolder.Error));
-
-        if (runResult.Value != 0)
-        {
-            return Fail(
-                ExplainCompileFailure(
-                    string.IsNullOrWhiteSpace(resultHolder.LastMessage)
-                        ? $"The WiiCompiled installer exited with code {runResult.Value}."
-                        : resultHolder.LastMessage
-                )
-            );
-        }
+        if (hostResult.IsFailure)
+            return hostResult.Error;
 
         if (RecompLinuxPaths.FindPlayExecutable() is null)
             return Fail("The WiiCompiled installer finished, but the Retro Rewind play binary was not created.");
@@ -304,12 +305,130 @@ public sealed class RecompLinuxNativeInstaller(
         return Ok(appImageResult.Value);
     }
 
+    private async Task<OperationResult> RunCompiledSetupAsync(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        IReadOnlyDictionary<string, string>? extraEnvironment,
+        IProgress<RecompInstallProgress>? progress,
+        CancellationToken cancellationToken
+    )
+    {
+        logger.LogInformation("Running the Linux WiiCompiled installer: {Setup} {Arguments}", fileName, string.Join(' ', arguments));
+        Report(progress, t("progress.recomp_running_setup"), 35);
+        var resultHolder = new ResultHolder();
+        var runResult = await processRunner.RunAsync(
+            fileName,
+            arguments,
+            fileSystem.Path.GetDirectoryName(fileName),
+            line => HandleOutput(line, progress, resultHolder),
+            extraEnvironment,
+            cancellationToken
+        );
+        if (runResult.IsFailure)
+            return runResult.Error;
+
+        if (resultHolder.Error is not null)
+            return Fail(ExplainCompileFailure(resultHolder.Error));
+
+        if (runResult.Value != 0)
+        {
+            return Fail(
+                ExplainCompileFailure(
+                    string.IsNullOrWhiteSpace(resultHolder.LastMessage)
+                        ? $"The WiiCompiled installer exited with code {runResult.Value}."
+                        : resultHolder.LastMessage
+                )
+            );
+        }
+
+        return Ok();
+    }
+
+    private async Task TryInstallDistroboxAsync(IProgress<RecompInstallProgress>? progress, CancellationToken cancellationToken)
+    {
+        if (RecompLinuxCompileHost.FindDistroboxExecutable() is not null)
+            return;
+
+        if (RecompLinuxCompileHost.FindContainerRuntime() is null)
+        {
+            logger.LogInformation("Distrobox was not installed because Podman or Docker is not available.");
+            return;
+        }
+
+        Report(progress, t("progress.recomp_preparing_compile"), 29);
+        var binDirectory = RecompLinuxCompileHost.UserInstallBinDirectory();
+        fileSystem.Directory.CreateDirectory(binDirectory);
+        var workFolder = fileSystem.Path.Combine(environment.CacheFolderPath, "distrobox-install");
+        if (fileSystem.Directory.Exists(workFolder))
+            fileSystem.Directory.Delete(workFolder, recursive: true);
+        fileSystem.Directory.CreateDirectory(workFolder);
+
+        var archivePath = fileSystem.Path.Combine(workFolder, "distrobox.tar.gz");
+        var downloadResult = await downloader.DownloadAsync(
+            RecompLinuxCompileHost.DistroboxReleaseArchiveUrl,
+            archivePath,
+            progress: null,
+            cancellationToken
+        );
+        if (downloadResult.IsFailure)
+        {
+            logger.LogWarning("Could not download Distrobox; compiling on the host instead.");
+            return;
+        }
+
+        var extractFolder = fileSystem.Path.Combine(workFolder, "src");
+        fileSystem.Directory.CreateDirectory(extractFolder);
+        var extract = await processRunner.RunAsync(
+            "/usr/bin/bsdtar",
+            ["-C", extractFolder, "-xf", archivePath],
+            workingDirectory: extractFolder,
+            onStandardOutputLine: null,
+            extraEnvironment: null,
+            cancellationToken
+        );
+        if (extract.IsFailure || extract.Value != 0)
+        {
+            logger.LogWarning("Could not extract Distrobox; compiling on the host instead.");
+            return;
+        }
+
+        foreach (var file in fileSystem.Directory.EnumerateFiles(extractFolder, "*", SearchOption.AllDirectories))
+        {
+            var name = fileSystem.Path.GetFileName(file);
+            if (!RecompLinuxCompileHost.IsDistroboxScript(name))
+                continue;
+
+            var destination = fileSystem.Path.Combine(binDirectory, name);
+            fileSystem.File.Copy(file, destination, overwrite: true);
+            TryMarkUnixExecutable(destination);
+        }
+
+        if (RecompLinuxCompileHost.FindDistroboxExecutable() is null)
+            logger.LogWarning("Distrobox scripts were copied, but the distrobox command is still missing.");
+    }
+
+    private static void TryMarkUnixExecutable(string filePath)
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+            return;
+
+        try
+        {
+            var mode = File.GetUnixFileMode(filePath);
+            File.SetUnixFileMode(filePath, mode | UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute);
+        }
+        catch (Exception)
+        {
+            // Install still proceeds; Distrobox start failure is reported later.
+        }
+    }
+
     private async Task<OperationResult> EnsureCompileHostAsync(
         IProgress<RecompInstallProgress>? progress,
         CancellationToken cancellationToken
     )
     {
-        var distrobox = RecompLinuxCompileHost.FindDistroboxExecutable();
+        var distrobox = RecompLinuxCompileHost.CanUseDistrobox() ? RecompLinuxCompileHost.FindDistroboxExecutable() : null;
         if (distrobox is null)
             return Ok();
 
