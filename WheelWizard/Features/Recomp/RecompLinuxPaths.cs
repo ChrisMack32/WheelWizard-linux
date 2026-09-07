@@ -105,6 +105,20 @@ public static class RecompLinuxPaths
         return null;
     }
 
+    /// <summary>
+    /// Retro Rewind's <c>rksys.dat</c> lives beside the pack, not in Dolphin's Riivolution folder.
+    /// </summary>
+    public static string? SaveFolderFromRetroRewind6(string? retroRewind6Folder)
+    {
+        if (string.IsNullOrWhiteSpace(retroRewind6Folder))
+            return null;
+
+        var parent = Path.GetDirectoryName(retroRewind6Folder);
+        return string.IsNullOrWhiteSpace(parent) ? null : Path.Combine(parent, "riivolution", "save", "RetroWFC");
+    }
+
+    public static string? FindSaveFolder() => SaveFolderFromRetroRewind6(FindRetroRewind6());
+
     public static string? FindGameImage()
     {
         if (!OperatingSystem.IsLinux())

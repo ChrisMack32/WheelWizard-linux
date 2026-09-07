@@ -157,6 +157,17 @@ public class RecompTests
     }
 
     [Fact]
+    public void LinuxSaveFolder_IsBesideTheWiiCompiledRetroRewindPack()
+    {
+        var folder = RecompLinuxPaths.SaveFolderFromRetroRewind6("/opt/WiiCompiled/RetroRewind/RetroRewind6");
+        Assert.NotNull(folder);
+        Assert.Contains("riivolution", folder);
+        Assert.EndsWith("RetroWFC", folder.Replace('\\', '/'));
+        Assert.DoesNotContain("RetroRewind6", folder);
+        Assert.Null(RecompLinuxPaths.SaveFolderFromRetroRewind6(null));
+    }
+
+    [Fact]
     public void LinuxLinkerLibraries_SelectTheUbuntuLibsTheAppImageLinkerNeeds()
     {
         Assert.True(RecompLinuxLinkerLibraries.ShouldCopyLibraryFile("libxml2.so.2"));
