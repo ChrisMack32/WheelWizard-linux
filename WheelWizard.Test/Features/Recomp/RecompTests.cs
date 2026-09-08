@@ -174,6 +174,37 @@ public class RecompTests
     }
 
     [Fact]
+    public void LinuxRuntimeConfig_WritesDvdRootIntoTheConfigThePlayBinaryReads()
+    {
+        var portable = RecompLinuxRuntimeConfig.FindPortableRoot(
+            ["/mnt/Spiele/WiiCompiled-ChrisMack32/WiiCompiled/play"],
+            path => path == "/mnt/Spiele/WiiCompiled-ChrisMack32/portable.txt"
+        );
+        Assert.Equal("/mnt/Spiele/WiiCompiled-ChrisMack32", portable);
+        Assert.True(
+            RecompLinuxRuntimeConfig.IsDvdDataRoot(
+                "/home/pulti/.local/share/WiiCompiled/workspace/Assets/DATA",
+                path => path.EndsWith("sys/fst.bin")
+            )
+        );
+        Assert.False(
+            RecompLinuxRuntimeConfig.IsDvdDataRoot("/mnt/Spiele/WiiCompiled-ChrisMack32/UserData/workspace/Assets/DATA", _ => false)
+        );
+
+        var quoted = RecompLinuxRuntimeConfig.QuoteTomlString(@"/mnt/Spiele/Mario Kart/DATA");
+        Assert.Equal("\"/mnt/Spiele/Mario Kart/DATA\"", quoted);
+
+        var updated = RecompLinuxRuntimeConfig.UpsertTomlSetting(
+            "# WiiCompiled user configuration\n\n[paths]\n# dvd_root = \"old\"\n",
+            "paths",
+            "dvd_root",
+            quoted
+        );
+        Assert.Contains("dvd_root = \"/mnt/Spiele/Mario Kart/DATA\"", updated);
+        Assert.Contains("# dvd_root = \"old\"", updated);
+    }
+
+    [Fact]
     public void LinuxSaveFolder_IsBesideTheWiiCompiledRetroRewindPack()
     {
         var folder = RecompLinuxPaths.SaveFolderFromRetroRewind6("/opt/WiiCompiled/RetroRewind/RetroRewind6");

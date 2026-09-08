@@ -542,6 +542,8 @@ public sealed class RecompInstallService : IRecompInstallService
             if (!reconciled)
                 return Fail("WiiCompiled must complete its current pre-launch reconciliation before it can launch.");
 
+            RecompLinuxRuntimeConfig.ApplyPlayPaths(environment.RetroRewindFolderPath);
+
             var nativeLaunch = await processRunner.RunAsync(
                 nativePlay,
                 arguments: string.Empty,

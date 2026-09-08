@@ -97,9 +97,7 @@ public sealed class RecompLinuxNativeInstaller(
             if (distroResult.IsFailure)
                 return distroResult.Error;
 
-            PublishSetupHost(root, setupResult.Value);
-            Report(progress, t("progress.recomp_finished"), 100);
-            return Ok();
+            return FinishLinuxInstall(root, setupResult.Value, retroDirResult.Value, progress);
         }
 
         var hostResult = await RunHostCompileAsync(
@@ -112,11 +110,7 @@ public sealed class RecompLinuxNativeInstaller(
             cancellationToken
         );
         if (hostResult.IsSuccess && RecompLinuxPaths.FindPlayExecutable() is not null)
-        {
-            PublishSetupHost(root, setupResult.Value);
-            Report(progress, t("progress.recomp_finished"), 100);
-            return Ok();
-        }
+            return FinishLinuxInstall(root, setupResult.Value, retroDirResult.Value, progress);
 
         if (RecompLinuxCompileHost.IsDiscImageFailure(hostResult.Error?.Message))
             return hostResult.Error ?? Fail(t("message_error.recomp_disc_unreadable"));
@@ -127,11 +121,7 @@ public sealed class RecompLinuxNativeInstaller(
         {
             var distroResult = await RunDistroboxCompileAsync(appRun, installArguments, extraVolumes, progress, cancellationToken);
             if (distroResult.IsSuccess)
-            {
-                PublishSetupHost(root, setupResult.Value);
-                Report(progress, t("progress.recomp_finished"), 100);
-                return Ok();
-            }
+                return FinishLinuxInstall(root, setupResult.Value, retroDirResult.Value, progress);
 
             if (RecompLinuxCompileHost.IsDiscImageFailure(distroResult.Error?.Message))
                 return distroResult.Error ?? Fail(t("message_error.recomp_disc_unreadable"));
@@ -838,6 +828,19 @@ public sealed class RecompLinuxNativeInstaller(
 
         using var stream = fileSystem.File.OpenRead(filePath);
         return stream.Length > 0;
+    }
+
+    private OperationResult FinishLinuxInstall(
+        string root,
+        string setupPath,
+        string retroRewindFolder,
+        IProgress<RecompInstallProgress>? progress
+    )
+    {
+        PublishSetupHost(root, setupPath);
+        RecompLinuxRuntimeConfig.ApplyPlayPaths(retroRewindFolder);
+        Report(progress, t("progress.recomp_finished"), 100);
+        return Ok();
     }
 
     private void PublishSetupHost(string root, string setupPath)
