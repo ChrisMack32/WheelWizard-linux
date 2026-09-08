@@ -96,11 +96,77 @@ public static class RecompLinuxCompileHost
     public static bool CanUseDistrobox(Func<string, bool>? fileExists = null) =>
         FindDistroboxExecutable(fileExists) is not null && FindContainerRuntime(fileExists) is not null;
 
+    public static IReadOnlyList<string> ArchiveToolSearchPaths(string name)
+    {
+        var paths = new List<string> { $"/usr/bin/{name}", $"/usr/local/bin/{name}", $"/bin/{name}" };
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(home))
+            paths.Add(Path.Combine(home, ".local", "bin", name));
+
+        var pathEnvironment = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(pathEnvironment))
+            return paths;
+
+        foreach (var directory in pathEnvironment.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            paths.Add(Path.Combine(directory, name));
+
+        return paths;
+    }
+
+    public static string? FindBsdtarExecutable(Func<string, bool>? fileExists = null) => FindToolExecutable("bsdtar", fileExists);
+
+    public static string? FindTarExecutable(Func<string, bool>? fileExists = null) => FindToolExecutable("tar", fileExists);
+
+    public static string? FindArExecutable(Func<string, bool>? fileExists = null) => FindToolExecutable("ar", fileExists);
+
+    public static string? FindTarExtractor(Func<string, bool>? fileExists = null) =>
+        FindBsdtarExecutable(fileExists) ?? FindTarExecutable(fileExists);
+
+    public static bool IsDiscImageFailure(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return false;
+
+        return message.Contains("nodtool", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("disc format", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("could not read this disc", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsStaleReleaseCacheFailure(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return false;
+
+        return message.Contains("only supports Release builds", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool CMakeCacheIsRelease(string cacheText)
+    {
+        foreach (var rawLine in cacheText.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = rawLine.Trim();
+            if (line.StartsWith("CMAKE_BUILD_TYPE", StringComparison.Ordinal) && line.EndsWith("=Release", StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string? FindToolExecutable(string name, Func<string, bool>? fileExists)
+    {
+        fileExists ??= File.Exists;
+        return ArchiveToolSearchPaths(name).FirstOrDefault(fileExists);
+    }
+
     public static Dictionary<string, string> UserToolEnvironment()
     {
         var bin = UserInstallBinDirectory();
         var path = Environment.GetEnvironmentVariable("PATH");
-        return new Dictionary<string, string> { ["PATH"] = string.IsNullOrWhiteSpace(path) ? bin : $"{bin}{Path.PathSeparator}{path}" };
+        return new Dictionary<string, string>
+        {
+            ["PATH"] = string.IsNullOrWhiteSpace(path) ? bin : $"{bin}{Path.PathSeparator}{path}",
+            ["CMAKE_BUILD_TYPE"] = "Release",
+        };
     }
 
     public static Dictionary<string, string> ParseOsRelease(string text)
@@ -274,7 +340,68 @@ public static class RecompLinuxCompileHost
         return arguments;
     }
 
-    public static IReadOnlyList<string> BuildCreateArguments() => ["create", "--name", ContainerName, "--image", ContainerImage, "--yes"];
+    /// <summary>
+    /// Distrobox always mounts <c>$HOME</c>. Game files and the install tree often live on
+    /// <c>/mnt</c> or <c>/run/media</c>, so those roots have to be added at create time.
+    /// </summary>
+    public static IReadOnlyList<string> HostBindRoots(params string?[] paths)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var roots = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var path in paths)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                continue;
+
+            string full;
+            try
+            {
+                full = Path.GetFullPath(path);
+            }
+            catch (Exception)
+            {
+                continue;
+            }
+
+            if (
+                !string.IsNullOrWhiteSpace(home)
+                && (
+                    full.Equals(home, StringComparison.Ordinal)
+                    || full.StartsWith(home.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                )
+            )
+            {
+                continue;
+            }
+
+            var parts = full.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+                continue;
+
+            var depth = parts[0] is "mnt" or "run" or "media" ? Math.Min(2, parts.Length) : 1;
+            roots.Add("/" + string.Join("/", parts.Take(depth)));
+        }
+
+        return roots.OrderBy(root => root, StringComparer.Ordinal).ToList();
+    }
+
+    public static IReadOnlyList<string> BuildCreateArguments(IEnumerable<string>? extraVolumes = null)
+    {
+        var arguments = new List<string> { "create", "--name", ContainerName, "--image", ContainerImage, "--yes" };
+        if (extraVolumes is null)
+            return arguments;
+
+        foreach (var volume in extraVolumes.Distinct(StringComparer.Ordinal))
+        {
+            if (string.IsNullOrWhiteSpace(volume))
+                continue;
+
+            arguments.Add("--volume");
+            arguments.Add($"{volume}:{volume}:rw");
+        }
+
+        return arguments;
+    }
 
     public static IReadOnlyList<string> BuildEnsureCompilerArguments() =>
         [

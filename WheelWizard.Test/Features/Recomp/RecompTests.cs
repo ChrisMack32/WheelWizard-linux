@@ -154,6 +154,23 @@ public class RecompTests
         Assert.Contains("steamos-readonly disable", script);
         Assert.Contains("steamos-readonly enable", script);
         Assert.Contains("distrobox podman", script);
+
+        Assert.Equal("/usr/bin/bsdtar", RecompLinuxCompileHost.FindBsdtarExecutable(path => path == "/usr/bin/bsdtar"));
+        Assert.Equal("/usr/bin/tar", RecompLinuxCompileHost.FindTarExtractor(path => path == "/usr/bin/tar"));
+        Assert.True(
+            RecompLinuxCompileHost.IsDiscImageFailure("error: nodtool could not read this disc image (exit 1): Failed: disc format error")
+        );
+        Assert.False(RecompLinuxCompileHost.IsDiscImageFailure("Could not create the Distrobox environment"));
+        var homeRetro = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Riivolution", "RetroRewind6");
+        Assert.Equal(["/mnt/Spiele"], RecompLinuxCompileHost.HostBindRoots("/mnt/Spiele/Mario Kart Wii.iso", homeRetro));
+        Assert.Contains("--volume", RecompLinuxCompileHost.BuildCreateArguments(["/mnt/Spiele"]));
+        Assert.Contains("/mnt/Spiele:/mnt/Spiele:rw", RecompLinuxCompileHost.BuildCreateArguments(["/mnt/Spiele"]));
+        Assert.True(RecompLinuxCompileHost.IsStaleReleaseCacheFailure("CMake Error: WiiCompiled only supports Release builds"));
+        Assert.False(RecompLinuxCompileHost.IsStaleReleaseCacheFailure("Could not create the Distrobox environment"));
+        Assert.True(RecompLinuxCompileHost.CMakeCacheIsRelease("CMAKE_BUILD_TYPE:STRING=Release"));
+        Assert.False(RecompLinuxCompileHost.CMakeCacheIsRelease("CMAKE_BUILD_TYPE:STRING="));
+        Assert.EndsWith("workspace/native-build", RecompLinuxPaths.NativeBuildFolderPath.Replace('\\', '/'));
+        Assert.Equal("Release", RecompLinuxSetupArgs.AppImageEnvironment["CMAKE_BUILD_TYPE"]);
     }
 
     [Fact]

@@ -16,6 +16,12 @@ public static class RecompLinuxPaths
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WiiCompiled");
 
     /// <summary>
+    /// Official AppRun keeps the incremental CMake tree here. A Distrobox attempt that dies
+    /// mid-configure leaves a cache that later host compiles reuse without <c>Release</c>.
+    /// </summary>
+    public static string NativeBuildFolderPath => Path.Combine(UserDataFolderPath, "workspace", "native-build");
+
+    /// <summary>
     /// WiiCompiled files that ship beside this Wheel Wizard build
     /// (<c>&lt;WheelWizard&gt;/WiiCompiled</c>).
     /// </summary>

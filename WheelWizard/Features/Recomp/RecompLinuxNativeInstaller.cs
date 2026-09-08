@@ -74,25 +74,12 @@ public sealed class RecompLinuxNativeInstaller(
         await TryInstallDistroboxAsync(progress, cancellationToken);
 
         var immutableHost = RecompLinuxCompileHost.IsImmutableLinux();
-        var useDistrobox = false;
-        if (RecompLinuxCompileHost.CanUseDistrobox())
-        {
-            var compileReady = await EnsureCompileHostAsync(progress, cancellationToken);
-            if (compileReady.IsSuccess)
-                useDistrobox = true;
-            else if (immutableHost)
-                return compileReady.Error;
-            else
-                logger.LogWarning(
-                    "Distrobox compile environment is unavailable; compiling on the host instead. {Error}",
-                    compileReady.Error
-                );
-        }
-        else if (immutableHost)
-        {
-            return Fail(t("message_error.recomp_immutable_distrobox_required"));
-        }
-
+        var extraVolumes = RecompLinuxCompileHost.HostBindRoots(
+            environment.GameFilePath,
+            playFolder,
+            RecompLinuxCompileHost.AppRunPath(root),
+            retroDirResult.Value
+        );
         var installArguments = RecompLinuxCompileHost.BuildAppRunInstallArguments(
             environment.GameFilePath,
             playFolder,
@@ -101,55 +88,58 @@ public sealed class RecompLinuxNativeInstaller(
         );
         var appRun = RecompLinuxCompileHost.AppRunPath(root);
 
-        if (useDistrobox)
+        if (immutableHost)
         {
-            var distrobox = RecompLinuxCompileHost.FindDistroboxExecutable();
-            if (distrobox is not null)
-            {
-                var distroResult = await RunCompiledSetupAsync(
-                    distrobox,
-                    RecompLinuxCompileHost.BuildDistroboxEnterArguments(appRun, installArguments),
-                    RecompLinuxCompileHost.UserToolEnvironment(),
-                    progress,
-                    cancellationToken
-                );
-                if (distroResult.IsSuccess && RecompLinuxPaths.FindPlayExecutable() is not null)
-                {
-                    PublishSetupHost(root, setupResult.Value);
-                    Report(progress, t("progress.recomp_finished"), 100);
-                    return Ok();
-                }
+            if (!RecompLinuxCompileHost.CanUseDistrobox())
+                return Fail(t("message_error.recomp_immutable_distrobox_required"));
 
-                if (immutableHost)
-                    return Fail(t("message_error.recomp_distrobox_compile_failed"));
+            var distroResult = await RunDistroboxCompileAsync(appRun, installArguments, extraVolumes, progress, cancellationToken);
+            if (distroResult.IsFailure)
+                return distroResult.Error;
 
-                logger.LogWarning("Distrobox compile failed; compiling on the host instead. {Error}", distroResult.Error);
-            }
+            PublishSetupHost(root, setupResult.Value);
+            Report(progress, t("progress.recomp_finished"), 100);
+            return Ok();
         }
 
-        var linkerLibs = await EnsureLinkerLibrariesAsync(progress, cancellationToken);
-        if (linkerLibs.IsFailure)
-            return linkerLibs.Error;
-
-        var extraEnvironment = string.IsNullOrWhiteSpace(linkerLibs.Value)
-            ? RecompLinuxSetupArgs.AppImageEnvironment
-            : RecompLinuxLinkerLibraries.WithLibraryPath(RecompLinuxSetupArgs.AppImageEnvironment, linkerLibs.Value);
-        var hostResult = await RunCompiledSetupAsync(
-            setupResult.Value,
-            RecompLinuxSetupArgs.BuildInstallArguments(environment.GameFilePath, playFolder, retroDirResult.Value, payloadMode),
-            extraEnvironment,
+        var hostResult = await RunHostCompileAsync(
+            appRun,
+            environment.GameFilePath,
+            playFolder,
+            retroDirResult.Value,
+            payloadMode,
             progress,
             cancellationToken
         );
-        if (hostResult.IsFailure)
-            return hostResult.Error;
+        if (hostResult.IsSuccess && RecompLinuxPaths.FindPlayExecutable() is not null)
+        {
+            PublishSetupHost(root, setupResult.Value);
+            Report(progress, t("progress.recomp_finished"), 100);
+            return Ok();
+        }
 
-        if (RecompLinuxPaths.FindPlayExecutable() is null)
-            return Fail("The WiiCompiled installer finished, but the Retro Rewind play binary was not created.");
+        if (RecompLinuxCompileHost.IsDiscImageFailure(hostResult.Error?.Message))
+            return hostResult.Error ?? Fail(t("message_error.recomp_disc_unreadable"));
 
-        PublishSetupHost(root, setupResult.Value);
-        Report(progress, t("progress.recomp_finished"), 100);
-        return Ok();
+        logger.LogWarning("Host compile failed; trying Distrobox if available. {Error}", hostResult.Error);
+
+        if (RecompLinuxCompileHost.CanUseDistrobox())
+        {
+            var distroResult = await RunDistroboxCompileAsync(appRun, installArguments, extraVolumes, progress, cancellationToken);
+            if (distroResult.IsSuccess)
+            {
+                PublishSetupHost(root, setupResult.Value);
+                Report(progress, t("progress.recomp_finished"), 100);
+                return Ok();
+            }
+
+            if (RecompLinuxCompileHost.IsDiscImageFailure(distroResult.Error?.Message))
+                return distroResult.Error ?? Fail(t("message_error.recomp_disc_unreadable"));
+
+            return distroResult.Error ?? hostResult.Error ?? Fail(t("message_error.recomp_host_compile_failed"));
+        }
+
+        return hostResult.Error ?? Fail(t("message_error.recomp_host_compile_failed"));
     }
 
     private async Task<OperationResult<string>> EnsureRetroRewindAsync(
@@ -315,6 +305,87 @@ public sealed class RecompLinuxNativeInstaller(
         return Ok(appImageResult.Value);
     }
 
+    private async Task<OperationResult> RunHostCompileAsync(
+        string appRun,
+        string gameFilePath,
+        string playFolder,
+        string retroRewindFolder,
+        RecompRetroWfcPayloadMode payloadMode,
+        IProgress<RecompInstallProgress>? progress,
+        CancellationToken cancellationToken
+    )
+    {
+        var linkerLibs = await EnsureLinkerLibrariesAsync(progress, cancellationToken);
+        if (linkerLibs.IsFailure)
+            return linkerLibs.Error;
+
+        var extraEnvironment = string.IsNullOrWhiteSpace(linkerLibs.Value)
+            ? RecompLinuxSetupArgs.AppImageEnvironment
+            : RecompLinuxLinkerLibraries.WithLibraryPath(RecompLinuxSetupArgs.AppImageEnvironment, linkerLibs.Value);
+
+        if (RecompLinuxPaths.FindPlayExecutable() is null)
+            ClearNativeBuildCache();
+
+        var installArguments = RecompLinuxCompileHost.BuildAppRunInstallArguments(gameFilePath, playFolder, retroRewindFolder, payloadMode);
+        var result = await RunCompiledSetupAsync(appRun, installArguments, extraEnvironment, progress, cancellationToken);
+        if (result.IsFailure && RecompLinuxCompileHost.IsStaleReleaseCacheFailure(result.Error?.Message))
+        {
+            logger.LogWarning("WiiCompiled's CMake cache was not a Release build; clearing it and compiling again.");
+            ClearNativeBuildCache();
+            result = await RunCompiledSetupAsync(appRun, installArguments, extraEnvironment, progress, cancellationToken);
+        }
+
+        return result;
+    }
+
+    private void ClearNativeBuildCache()
+    {
+        var folder = RecompLinuxPaths.NativeBuildFolderPath;
+        if (!fileSystem.Directory.Exists(folder))
+            return;
+
+        try
+        {
+            fileSystem.Directory.Delete(folder, recursive: true);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Could not clear the unfinished WiiCompiled CMake cache at {Folder}", folder);
+        }
+    }
+
+    private async Task<OperationResult> RunDistroboxCompileAsync(
+        string appRun,
+        IReadOnlyList<string> installArguments,
+        IReadOnlyList<string> extraVolumes,
+        IProgress<RecompInstallProgress>? progress,
+        CancellationToken cancellationToken
+    )
+    {
+        var compileReady = await EnsureCompileHostAsync(extraVolumes, progress, cancellationToken);
+        if (compileReady.IsFailure)
+            return compileReady.Error;
+
+        var distrobox = RecompLinuxCompileHost.FindDistroboxExecutable();
+        if (distrobox is null)
+            return Fail(t("message_error.recomp_immutable_distrobox_required"));
+
+        var distroResult = await RunCompiledSetupAsync(
+            distrobox,
+            RecompLinuxCompileHost.BuildDistroboxEnterArguments(appRun, installArguments),
+            RecompLinuxCompileHost.UserToolEnvironment(),
+            progress,
+            cancellationToken
+        );
+        if (distroResult.IsSuccess && RecompLinuxPaths.FindPlayExecutable() is not null)
+            return Ok();
+
+        if (distroResult.IsFailure)
+            return distroResult.Error;
+
+        return Fail("The WiiCompiled installer finished, but the Retro Rewind play binary was not created.");
+    }
+
     private async Task<OperationResult> RunCompiledSetupAsync(
         string fileName,
         IReadOnlyList<string> arguments,
@@ -397,8 +468,15 @@ public sealed class RecompLinuxNativeInstaller(
 
         var extractFolder = fileSystem.Path.Combine(workFolder, "src");
         fileSystem.Directory.CreateDirectory(extractFolder);
+        var tar = RecompLinuxCompileHost.FindTarExtractor();
+        if (tar is null)
+        {
+            logger.LogWarning("Could not extract Distrobox because tar/bsdtar is missing.");
+            return;
+        }
+
         var extract = await processRunner.RunAsync(
-            "/usr/bin/bsdtar",
+            tar,
             ["-C", extractFolder, "-xf", archivePath],
             workingDirectory: extractFolder,
             onStandardOutputLine: null,
@@ -494,6 +572,7 @@ public sealed class RecompLinuxNativeInstaller(
     }
 
     private async Task<OperationResult> EnsureCompileHostAsync(
+        IReadOnlyList<string> extraVolumes,
         IProgress<RecompInstallProgress>? progress,
         CancellationToken cancellationToken
     )
@@ -520,7 +599,7 @@ public sealed class RecompLinuxNativeInstaller(
             Report(progress, "Creating the WiiCompiled compile environment", 30);
             var createResult = await processRunner.RunAsync(
                 distrobox,
-                RecompLinuxCompileHost.BuildCreateArguments(),
+                RecompLinuxCompileHost.BuildCreateArguments(extraVolumes),
                 workingDirectory: null,
                 onStandardOutputLine: null,
                 toolEnvironment,
@@ -582,7 +661,7 @@ public sealed class RecompLinuxNativeInstaller(
                 return Fail(t("message_error.recomp_host_compile_failed"));
 
             if (!await ExtractDebLibrariesAsync(debPath, libraryFolder, cancellationToken))
-                return Fail(t("message_error.recomp_host_compile_failed"));
+                return Fail(t("message_error.recomp_missing_archive_tool"));
         }
 
         if (!RecompLinuxLinkerLibraries.HasCachedLibXml2(libraryFolder))
@@ -599,30 +678,14 @@ public sealed class RecompLinuxNativeInstaller(
         );
         fileSystem.Directory.CreateDirectory(extractFolder);
 
-        var unpackDeb = await processRunner.RunAsync(
-            "/usr/bin/bsdtar",
-            ["-C", extractFolder, "-xf", debPath],
-            workingDirectory: extractFolder,
-            onStandardOutputLine: null,
-            extraEnvironment: null,
-            cancellationToken
-        );
-        if (unpackDeb.IsFailure || unpackDeb.Value != 0)
+        if (!await ExtractArchiveAsync(debPath, extractFolder, cancellationToken))
             return false;
 
         var dataArchive = fileSystem.Directory.EnumerateFiles(extractFolder, "data.tar*", SearchOption.TopDirectoryOnly).FirstOrDefault();
         if (dataArchive is null)
             return false;
 
-        var unpackData = await processRunner.RunAsync(
-            "/usr/bin/bsdtar",
-            ["-C", extractFolder, "-xf", dataArchive],
-            workingDirectory: extractFolder,
-            onStandardOutputLine: null,
-            extraEnvironment: null,
-            cancellationToken
-        );
-        if (unpackData.IsFailure || unpackData.Value != 0)
+        if (!await ExtractArchiveAsync(dataArchive, extractFolder, cancellationToken))
             return false;
 
         foreach (var file in fileSystem.Directory.EnumerateFiles(extractFolder, "*", SearchOption.AllDirectories))
@@ -637,8 +700,63 @@ public sealed class RecompLinuxNativeInstaller(
         return true;
     }
 
+    private async Task<bool> ExtractArchiveAsync(string archivePath, string destinationFolder, CancellationToken cancellationToken)
+    {
+        var bsdtar = RecompLinuxCompileHost.FindBsdtarExecutable();
+        if (bsdtar is not null)
+        {
+            var extract = await processRunner.RunAsync(
+                bsdtar,
+                ["-C", destinationFolder, "-xf", archivePath],
+                workingDirectory: destinationFolder,
+                onStandardOutputLine: null,
+                extraEnvironment: null,
+                cancellationToken
+            );
+            if (extract.IsSuccess && extract.Value == 0)
+                return true;
+        }
+
+        if (archivePath.EndsWith(".deb", StringComparison.OrdinalIgnoreCase))
+        {
+            var ar = RecompLinuxCompileHost.FindArExecutable();
+            if (ar is null)
+                return false;
+
+            var unpackAr = await processRunner.RunAsync(
+                ar,
+                ["-x", archivePath],
+                workingDirectory: destinationFolder,
+                onStandardOutputLine: null,
+                extraEnvironment: null,
+                cancellationToken
+            );
+            return unpackAr.IsSuccess && unpackAr.Value == 0;
+        }
+
+        var tar = RecompLinuxCompileHost.FindTarExecutable();
+        if (tar is null)
+            return false;
+
+        var unpackTar = await processRunner.RunAsync(
+            tar,
+            ["-C", destinationFolder, "-xf", archivePath],
+            workingDirectory: destinationFolder,
+            onStandardOutputLine: null,
+            extraEnvironment: null,
+            cancellationToken
+        );
+        return unpackTar.IsSuccess && unpackTar.Value == 0;
+    }
+
     private static string ExplainCompileFailure(string message)
     {
+        if (RecompLinuxCompileHost.IsDiscImageFailure(message))
+            return t("message_error.recomp_disc_unreadable");
+
+        if (RecompLinuxCompileHost.IsStaleReleaseCacheFailure(message))
+            return message;
+
         if (
             message.Contains("libxml2.so.2", StringComparison.OrdinalIgnoreCase)
             || (
@@ -765,6 +883,8 @@ public sealed class RecompLinuxNativeInstaller(
             line.Contains("libxml2.so.2", StringComparison.OrdinalIgnoreCase)
             || line.Contains("local-build.sh: error", StringComparison.OrdinalIgnoreCase)
             || line.Contains("error: local-build.sh", StringComparison.OrdinalIgnoreCase)
+            || RecompLinuxCompileHost.IsDiscImageFailure(line)
+            || RecompLinuxCompileHost.IsStaleReleaseCacheFailure(line)
         )
         {
             resultHolder.LastMessage = line.Trim();

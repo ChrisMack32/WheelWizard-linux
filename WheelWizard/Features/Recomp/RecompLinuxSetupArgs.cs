@@ -12,7 +12,7 @@ public static class RecompLinuxSetupArgs
     public const string AppImageExtractAndRunVariable = "APPIMAGE_EXTRACT_AND_RUN";
 
     public static IReadOnlyDictionary<string, string> AppImageEnvironment { get; } =
-        new Dictionary<string, string> { [AppImageExtractAndRunVariable] = "1" };
+        new Dictionary<string, string> { [AppImageExtractAndRunVariable] = "1", ["CMAKE_BUILD_TYPE"] = "Release" };
 
     public static IReadOnlyList<string> BuildInstallArguments(
         string gameFilePath,
