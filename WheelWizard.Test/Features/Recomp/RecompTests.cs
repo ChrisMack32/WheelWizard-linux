@@ -202,6 +202,15 @@ public class RecompTests
         );
         Assert.Contains("dvd_root = \"/mnt/Spiele/Mario Kart/DATA\"", updated);
         Assert.Contains("# dvd_root = \"old\"", updated);
+
+        var exists = (string path) =>
+            path.EndsWith("RetroRewind6/Binaries/Code.pul", StringComparison.Ordinal)
+            || path.EndsWith("RetroRewind6/Binaries/ConfigCT.pul", StringComparison.Ordinal);
+        Assert.Equal(
+            "/mnt/Spiele/WiiCompiled-ChrisMack32/WiiCompiled/RetroRewind/RetroRewind6",
+            RecompLinuxRuntimeConfig.NormalizeRetroRewind6Folder("/mnt/Spiele/WiiCompiled-ChrisMack32/WiiCompiled/RetroRewind", exists)
+        );
+        Assert.True(RecompLinuxRuntimeConfig.HasPulsarPack("/opt/RR/RetroRewind6", exists));
     }
 
     [Fact]

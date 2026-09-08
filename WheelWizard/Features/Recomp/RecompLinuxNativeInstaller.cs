@@ -237,7 +237,7 @@ public sealed class RecompLinuxNativeInstaller(
         }
     }
 
-    private bool HasRetroRewindPack(string folder) => fileSystem.File.Exists(fileSystem.Path.Combine(folder, "Binaries", "Code.pul"));
+    private bool HasRetroRewindPack(string folder) => RecompLinuxRuntimeConfig.HasPulsarPack(folder, fileSystem.File.Exists);
 
     private async Task<OperationResult<string>> EnsureExtractedSetupAsync(
         string root,

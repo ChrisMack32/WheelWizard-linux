@@ -70,6 +70,29 @@ public static class RecompLinuxRuntimeConfig
         return fileExists(Path.Combine(folder, "sys", "fst.bin"));
     }
 
+    public static bool HasPulsarPack(string? folder, Func<string, bool>? fileExists = null)
+    {
+        if (string.IsNullOrWhiteSpace(folder))
+            return false;
+
+        fileExists ??= File.Exists;
+        var binaries = Path.Combine(folder, "Binaries");
+        return fileExists(Path.Combine(binaries, "Code.pul"))
+            && (fileExists(Path.Combine(binaries, "ConfigCT.pul")) || fileExists(Path.Combine(binaries, "ConfigRT.pul")));
+    }
+
+    public static string? NormalizeRetroRewind6Folder(string? folder, Func<string, bool>? fileExists = null)
+    {
+        if (string.IsNullOrWhiteSpace(folder))
+            return null;
+
+        if (HasPulsarPack(folder, fileExists))
+            return folder;
+
+        var child = Path.Combine(folder, "RetroRewind6");
+        return HasPulsarPack(child, fileExists) ? child : null;
+    }
+
     public static string QuoteTomlString(string text) => $"\"{text.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
 
     public static string UpsertTomlSetting(string existingText, string section, string key, string quotedValue)
@@ -110,21 +133,30 @@ public static class RecompLinuxRuntimeConfig
     {
         try
         {
-            var dvd = ExtractedDvdDataCandidates().FirstOrDefault(folder => IsDvdDataRoot(folder));
-            if (dvd is null)
-                return false;
-
             var configPath = RuntimeConfigFilePath;
-            var directory = Path.GetDirectoryName(configPath);
-            if (!string.IsNullOrWhiteSpace(directory))
-                Directory.CreateDirectory(directory);
+            var configDirectory = Path.GetDirectoryName(configPath);
+            if (!string.IsNullOrWhiteSpace(configDirectory))
+                Directory.CreateDirectory(configDirectory);
 
             var text = File.Exists(configPath) ? File.ReadAllText(configPath) : "# WiiCompiled user configuration\n\n[paths]\n";
-            if (!CurrentDvdRootIsUsable(text))
-                text = UpsertTomlSetting(text, "paths", "dvd_root", QuoteTomlString(dvd));
+            var wrote = false;
 
-            if (!string.IsNullOrWhiteSpace(retroRewind6Folder) && Directory.Exists(Path.Combine(retroRewind6Folder, "Binaries")))
-                text = UpsertTomlSetting(text, "paths", "retro_rewind_root", QuoteTomlString(retroRewind6Folder));
+            var dvd = ExtractedDvdDataCandidates().FirstOrDefault(folder => IsDvdDataRoot(folder));
+            if (dvd is not null && !CurrentDvdRootIsUsable(text, configDirectory))
+            {
+                text = UpsertTomlSetting(text, "paths", "dvd_root", QuoteTomlString(dvd));
+                wrote = true;
+            }
+
+            var retro = NormalizeRetroRewind6Folder(retroRewind6Folder) ?? FindRetroRewind6NearPortable();
+            if (retro is not null)
+            {
+                text = UpsertTomlSetting(text, "paths", "retro_rewind_root", QuoteTomlString(Path.GetFullPath(retro)));
+                wrote = true;
+            }
+
+            if (!wrote)
+                return false;
 
             File.WriteAllText(configPath, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             return true;
@@ -139,9 +171,35 @@ public static class RecompLinuxRuntimeConfig
     {
         yield return ExtractedDvdDataFolderPath;
         yield return Path.Combine(RuntimeUserDataFolderPath, "workspace", "Assets", "DATA");
+
+        var portable = FindPortableRoot(RecompLinuxPaths.FindPlayWorkingDirectory(), Path.GetDirectoryName(Environment.ProcessPath));
+        if (portable is not null)
+            yield return Path.Combine(portable, "DATA");
+
+        var userDataParent = Path.GetDirectoryName(RuntimeUserDataFolderPath);
+        if (!string.IsNullOrWhiteSpace(userDataParent))
+            yield return Path.Combine(userDataParent, "DATA");
     }
 
-    private static bool CurrentDvdRootIsUsable(string configText)
+    private static string? FindRetroRewind6NearPortable()
+    {
+        var found = RecompLinuxPaths.FindRetroRewind6();
+        if (found is not null)
+            return found;
+
+        var portable = FindPortableRoot(RecompLinuxPaths.FindPlayWorkingDirectory(), Path.GetDirectoryName(Environment.ProcessPath));
+        if (portable is null)
+            return null;
+
+        return new[]
+        {
+            Path.Combine(portable, "WiiCompiled", "RetroRewind", "RetroRewind6"),
+            Path.Combine(portable, "RetroRewind", "RetroRewind6"),
+            Path.Combine(portable, "RetroRewind6"),
+        }.FirstOrDefault(folder => HasPulsarPack(folder));
+    }
+
+    private static bool CurrentDvdRootIsUsable(string configText, string? configDirectory)
     {
         foreach (var rawLine in configText.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
         {
@@ -153,7 +211,13 @@ public static class RecompLinuxRuntimeConfig
             if (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
                 value = value[1..^1].Replace("\\\\", "\\").Replace("\\\"", "\"");
 
-            return IsDvdDataRoot(value);
+            if (IsDvdDataRoot(value))
+                return true;
+
+            if (!string.IsNullOrWhiteSpace(configDirectory) && !Path.IsPathRooted(value))
+                return IsDvdDataRoot(Path.GetFullPath(Path.Combine(configDirectory, value)));
+
+            return false;
         }
 
         return false;
