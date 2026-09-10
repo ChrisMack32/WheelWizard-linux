@@ -71,9 +71,9 @@ public sealed class RecompLinuxNativeInstaller(
         if (setupResult.IsFailure)
             return setupResult.Error;
 
-        await TryInstallDistroboxAsync(progress, cancellationToken);
+        if (RecompLinuxLocalBuild.NeedsRecompile(playFolder, retroDirResult.Value))
+            ClearNativeBuildCache();
 
-        var immutableHost = RecompLinuxCompileHost.IsImmutableLinux();
         var extraVolumes = RecompLinuxCompileHost.HostBindRoots(
             environment.GameFilePath,
             playFolder,
@@ -87,18 +87,21 @@ public sealed class RecompLinuxNativeInstaller(
             payloadMode
         );
         var appRun = RecompLinuxCompileHost.AppRunPath(root);
+        var preferContainer = RecompLinuxCompileHost.CanUseDistrobox() && !RecompLinuxCompileHost.HostHasGccRuntime();
 
-        if (immutableHost)
+        if (preferContainer)
         {
-            if (!RecompLinuxCompileHost.CanUseDistrobox())
-                return Fail(t("message_error.recomp_immutable_distrobox_required"));
+            var distroFirst = await RunDistroboxCompileAsync(appRun, installArguments, extraVolumes, progress, cancellationToken);
+            if (distroFirst.IsSuccess && RecompLinuxPaths.FindPlayExecutable() is not null)
+                return FinishLinuxInstall(root, setupResult.Value, retroDirResult.Value, progress);
 
-            var distroResult = await RunDistroboxCompileAsync(appRun, installArguments, extraVolumes, progress, cancellationToken);
-            if (distroResult.IsFailure)
-                return distroResult.Error;
+            if (RecompLinuxCompileHost.IsDiscImageFailure(distroFirst.Error?.Message))
+                return distroFirst.Error ?? Fail(t("message_error.recomp_disc_unreadable"));
 
-            return FinishLinuxInstall(root, setupResult.Value, retroDirResult.Value, progress);
+            logger.LogWarning("Container compile failed; trying the host toolchain. {Error}", distroFirst.Error);
         }
+        else
+            await TryInstallDistroboxAsync(progress, cancellationToken);
 
         var hostResult = await RunHostCompileAsync(
             appRun,
@@ -114,6 +117,9 @@ public sealed class RecompLinuxNativeInstaller(
 
         if (RecompLinuxCompileHost.IsDiscImageFailure(hostResult.Error?.Message))
             return hostResult.Error ?? Fail(t("message_error.recomp_disc_unreadable"));
+
+        if (preferContainer)
+            return hostResult.Error ?? Fail(t("message_error.recomp_host_compile_failed"));
 
         logger.LogWarning("Host compile failed; trying Distrobox if available. {Error}", hostResult.Error);
 
@@ -356,14 +362,14 @@ public sealed class RecompLinuxNativeInstaller(
         if (compileReady.IsFailure)
             return compileReady.Error;
 
-        var distrobox = RecompLinuxCompileHost.FindDistroboxExecutable();
-        if (distrobox is null)
+        var runtime = RecompLinuxCompileHost.FindContainerRuntime();
+        if (runtime is null)
             return Fail(t("message_error.recomp_immutable_distrobox_required"));
 
         var distroResult = await RunCompiledSetupAsync(
-            distrobox,
-            RecompLinuxCompileHost.BuildDistroboxEnterArguments(appRun, installArguments),
-            RecompLinuxCompileHost.UserToolEnvironment(),
+            runtime,
+            RecompLinuxCompileHost.BuildContainerExecArguments(appRun, installArguments),
+            extraEnvironment: null,
             progress,
             cancellationToken
         );
@@ -568,7 +574,8 @@ public sealed class RecompLinuxNativeInstaller(
     )
     {
         var distrobox = RecompLinuxCompileHost.CanUseDistrobox() ? RecompLinuxCompileHost.FindDistroboxExecutable() : null;
-        if (distrobox is null)
+        var runtime = RecompLinuxCompileHost.FindContainerRuntime();
+        if (distrobox is null || runtime is null)
             return Ok();
 
         var toolEnvironment = RecompLinuxCompileHost.UserToolEnvironment();
@@ -601,13 +608,26 @@ public sealed class RecompLinuxNativeInstaller(
                 return Fail("Could not create the Distrobox environment used to compile WiiCompiled.");
         }
 
+        var start = await processRunner.RunAsync(
+            runtime,
+            RecompLinuxCompileHost.BuildContainerStartArguments(),
+            workingDirectory: null,
+            onStandardOutputLine: null,
+            extraEnvironment: null,
+            cancellationToken
+        );
+        if (start.IsFailure)
+            return start.Error;
+        if (start.Value != 0)
+            return Fail("Could not start the Distrobox environment used to compile WiiCompiled.");
+
         Report(progress, "Checking the compile environment", 32);
         var packages = await processRunner.RunAsync(
-            distrobox,
+            runtime,
             RecompLinuxCompileHost.BuildEnsureCompilerArguments(),
             workingDirectory: null,
             onStandardOutputLine: null,
-            toolEnvironment,
+            extraEnvironment: null,
             cancellationToken
         );
         if (packages.IsFailure)
@@ -747,6 +767,9 @@ public sealed class RecompLinuxNativeInstaller(
         if (RecompLinuxCompileHost.IsStaleReleaseCacheFailure(message))
             return message;
 
+        if (RecompLinuxCompileHost.IsDistroboxHostShellFailure(message))
+            return t("message_error.recomp_host_compile_failed");
+
         if (
             message.Contains("libxml2.so.2", StringComparison.OrdinalIgnoreCase)
             || (
@@ -839,6 +862,7 @@ public sealed class RecompLinuxNativeInstaller(
     {
         PublishSetupHost(root, setupPath);
         RecompLinuxRuntimeConfig.ApplyPlayPaths(retroRewindFolder);
+        linuxUpdateChecker.InvalidateCache();
         Report(progress, t("progress.recomp_finished"), 100);
         return Ok();
     }
@@ -888,6 +912,7 @@ public sealed class RecompLinuxNativeInstaller(
             || line.Contains("error: local-build.sh", StringComparison.OrdinalIgnoreCase)
             || RecompLinuxCompileHost.IsDiscImageFailure(line)
             || RecompLinuxCompileHost.IsStaleReleaseCacheFailure(line)
+            || RecompLinuxCompileHost.IsDistroboxHostShellFailure(line)
         )
         {
             resultHolder.LastMessage = line.Trim();

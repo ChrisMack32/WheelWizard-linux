@@ -5,8 +5,8 @@ namespace WheelWizard.Recomp;
 
 /// <summary>
 /// How Linux actually compiles WiiCompiled. The official AppImage already has clang and ninja;
-/// the linker still wants Ubuntu's <c>libxml2.so.2</c>, and immutable hosts have no GCC runtime.
-/// Distrobox is the compile environment on SteamOS and other read-only distros.
+/// the linker still wants Ubuntu's <c>libxml2.so.2</c>. Host compile is tried first, including
+/// on SteamOS. Distrobox is the fallback when the host linker cannot finish.
 /// </summary>
 public static class RecompLinuxCompileHost
 {
@@ -96,6 +96,28 @@ public static class RecompLinuxCompileHost
     public static bool CanUseDistrobox(Func<string, bool>? fileExists = null) =>
         FindDistroboxExecutable(fileExists) is not null && FindContainerRuntime(fileExists) is not null;
 
+    /// <summary>
+    /// SteamOS has clang in the AppImage but no GCC <c>crtbeginS.o</c>/<c>libgcc</c>.
+    /// A host that already has <c>gcc</c> can link the AppImage toolchain without a container.
+    /// </summary>
+    public static readonly string[] GccRuntimeMarkers =
+    [
+        "/usr/bin/gcc",
+        "/usr/bin/g++",
+        "/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o",
+        "/usr/lib/gcc/x86_64-linux-gnu/14/crtbeginS.o",
+        "/usr/lib64/gcc/x86_64-pc-linux-gnu/14/crtbeginS.o",
+        "/usr/lib64/gcc/x86_64-pc-linux-gnu/15/crtbeginS.o",
+        "/usr/lib64/gcc/x86_64-suse-linux/14/crtbeginS.o",
+        "/usr/lib64/gcc/x86_64-suse-linux/15/crtbeginS.o",
+    ];
+
+    public static bool HostHasGccRuntime(Func<string, bool>? fileExists = null)
+    {
+        fileExists ??= File.Exists;
+        return GccRuntimeMarkers.Any(fileExists);
+    }
+
     public static IReadOnlyList<string> ArchiveToolSearchPaths(string name)
     {
         var paths = new List<string> { $"/usr/bin/{name}", $"/usr/local/bin/{name}", $"/bin/{name}" };
@@ -138,6 +160,20 @@ public static class RecompLinuxCompileHost
             return false;
 
         return message.Contains("only supports Release builds", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Distrobox enter on SteamOS often execs the host bash, which then dies on a
+    /// readline symbol the container environment does not provide.
+    /// </summary>
+    public static bool IsDistroboxHostShellFailure(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return false;
+
+        return message.Contains("rl_print_keybinding", StringComparison.Ordinal)
+            || message.Contains("rl_full_quoting_desired", StringComparison.Ordinal)
+            || message.Contains("symbol lookup error", StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool CMakeCacheIsRelease(string cacheText)
@@ -340,6 +376,33 @@ public static class RecompLinuxCompileHost
         return arguments;
     }
 
+    public static IReadOnlyList<string> BuildContainerStartArguments() => ["start", ContainerName];
+
+    /// <summary>
+    /// <c>distrobox enter</c> runs the host bash, which on SteamOS dies on a readline
+    /// symbol mismatch. <c>podman exec</c> uses the Ubuntu container's own bash.
+    /// </summary>
+    public static IReadOnlyList<string> BuildContainerExecArguments(
+        string executable,
+        IReadOnlyList<string> executableArguments,
+        string? homeDirectory = null
+    )
+    {
+        var home = homeDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var arguments = new List<string> { "exec", "-i", "-e", "CMAKE_BUILD_TYPE=Release" };
+        if (!string.IsNullOrWhiteSpace(home))
+        {
+            arguments.Add("-e");
+            arguments.Add("HOME=" + home);
+        }
+
+        arguments.Add(ContainerName);
+        arguments.Add("/bin/bash");
+        arguments.Add(executable);
+        arguments.AddRange(executableArguments);
+        return arguments;
+    }
+
     /// <summary>
     /// Distrobox always mounts <c>$HOME</c>. Game files and the install tree often live on
     /// <c>/mnt</c> or <c>/run/media</c>, so those roots have to be added at create time.
@@ -405,10 +468,10 @@ public static class RecompLinuxCompileHost
 
     public static IReadOnlyList<string> BuildEnsureCompilerArguments() =>
         [
-            "enter",
+            "exec",
+            "-i",
             ContainerName,
-            "--",
-            "bash",
+            "/bin/bash",
             "-lc",
             "if command -v gcc >/dev/null && ldconfig -p | grep -q libxml2.so.2; then exit 0; fi; sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y gcc libxml2",
         ];

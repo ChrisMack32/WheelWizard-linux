@@ -7,10 +7,13 @@ public interface IRecompLinuxUpdateChecker
 {
     /// <summary>
     /// <see langword="true"/> when Retro Rewind or WiiCompiled has a newer official release,
+    /// or when the play binary was compiled against a different <c>Code.pul</c>,
     /// <see langword="false"/> when both look current, and <see langword="null"/> when the check
     /// could not be completed (offline, missing files).
     /// </summary>
     Task<bool?> IsOutOfDateAsync(string? installedWiiCompiledVersion, CancellationToken cancellationToken = default);
+
+    void InvalidateCache();
 }
 
 public sealed class RecompLinuxUpdateChecker(
@@ -30,6 +33,9 @@ public sealed class RecompLinuxUpdateChecker(
 
     public async Task<bool?> IsOutOfDateAsync(string? installedWiiCompiledVersion, CancellationToken cancellationToken = default)
     {
+        if (RecompLinuxLocalBuild.NeedsRecompile(RecompLinuxPaths.FindPlayWorkingDirectory(), RecompLinuxPaths.FindRetroRewind6()))
+            return true;
+
         lock (_cacheLock)
         {
             if (DateTimeOffset.UtcNow - _cachedAtUtc < ResultLifetime)
@@ -51,6 +57,15 @@ public sealed class RecompLinuxUpdateChecker(
         }
 
         return result;
+    }
+
+    public void InvalidateCache()
+    {
+        lock (_cacheLock)
+        {
+            _cachedAtUtc = DateTimeOffset.MinValue;
+            _cachedResult = null;
+        }
     }
 
     public static string? ReadLatestVersionToken(string versionList)

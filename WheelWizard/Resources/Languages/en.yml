@@ -460,11 +460,11 @@ en:
     failed_install_dolphin:
       title: "Failed to install Dolphin"
       extra: "The installation of Dolphin Emulator failed. Please try manually installing Flatpak Dolphin."
-    recomp_host_compile_failed: "The WiiCompiled compile failed. Press Install again — Wheel Wizard retries the compile inside the app."
+    recomp_host_compile_failed: "The WiiCompiled compile did not finish. Press Update again — Wheel Wizard retries the compile inside the app."
     recomp_missing_archive_tool: "Wheel Wizard could not unpack the compiler libraries. Install the libarchive or binutils package (bsdtar or ar), then press Install again."
     recomp_disc_unreadable: "WiiCompiled could not read this disc image. Point Settings → Location at a clean PAL RMCP01 dump (ISO, WBFS, RVZ, WIA, or GCZ) — not an old Dolphin GCZ. If a GCZ fails, convert that same dump to ISO or RVZ. NKit and trimmed dumps are not accepted."
-    recomp_immutable_distrobox_required: "This Linux system is read-only, so WiiCompiled has to compile inside Distrobox. Wheel Wizard tried to install Distrobox and Podman. If a terminal opened, enter your password there, then press Install again."
-    recomp_distrobox_compile_failed: "The WiiCompiled compile failed inside Distrobox. Check your internet connection and press Install again."
+    recomp_immutable_distrobox_required: "The compile on this read-only Linux system did not finish, and Distrobox is not available as a fallback. Wheel Wizard tried to install Distrobox and Podman. If a terminal opened, enter your password there, then press Update again."
+    recomp_distrobox_compile_failed: "The WiiCompiled compile did not finish. Press Update again — Wheel Wizard retries on this computer first."
     failed_retrieve_mod:
       title: "Failed to retrieve mod info"
     mod_download_fail:

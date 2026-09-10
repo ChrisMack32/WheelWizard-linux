@@ -119,6 +119,20 @@ public class RecompTests
         Assert.Equal("/usr/bin/podman", RecompLinuxCompileHost.FindContainerRuntime(path => path == "/usr/bin/podman"));
         Assert.True(RecompLinuxCompileHost.CanUseDistrobox(path => path is "/usr/bin/distrobox" or "/usr/bin/podman"));
         Assert.False(RecompLinuxCompileHost.CanUseDistrobox(path => path == "/usr/bin/distrobox"));
+
+        var exec = RecompLinuxCompileHost.BuildContainerExecArguments("/opt/WiiCompiled/setup/AppRun", install, "/home/deck");
+        Assert.Equal("exec", exec[0]);
+        Assert.Equal("-i", exec[1]);
+        Assert.Contains("CMAKE_BUILD_TYPE=Release", exec);
+        Assert.Contains("HOME=/home/deck", exec);
+        Assert.Contains("wiicompiled", exec);
+        Assert.Contains("/bin/bash", exec);
+        Assert.Contains("/opt/WiiCompiled/setup/AppRun", exec);
+        Assert.Equal("start", RecompLinuxCompileHost.BuildContainerStartArguments()[0]);
+        Assert.Equal("exec", RecompLinuxCompileHost.BuildEnsureCompilerArguments()[0]);
+        Assert.DoesNotContain("enter", RecompLinuxCompileHost.BuildEnsureCompilerArguments());
+        Assert.True(RecompLinuxCompileHost.HostHasGccRuntime(path => path == "/usr/bin/gcc"));
+        Assert.False(RecompLinuxCompileHost.HostHasGccRuntime(_ => false));
     }
 
     [Fact]
@@ -169,8 +183,47 @@ public class RecompTests
         Assert.False(RecompLinuxCompileHost.IsStaleReleaseCacheFailure("Could not create the Distrobox environment"));
         Assert.True(RecompLinuxCompileHost.CMakeCacheIsRelease("CMAKE_BUILD_TYPE:STRING=Release"));
         Assert.False(RecompLinuxCompileHost.CMakeCacheIsRelease("CMAKE_BUILD_TYPE:STRING="));
+        Assert.True(
+            RecompLinuxCompileHost.IsDistroboxHostShellFailure("bash: symbol lookup error: bash: undefined symbol: rl_print_keybinding")
+        );
+        Assert.False(RecompLinuxCompileHost.IsDistroboxHostShellFailure("error: nodtool could not read this disc image"));
         Assert.EndsWith("workspace/native-build", RecompLinuxPaths.NativeBuildFolderPath.Replace('\\', '/'));
         Assert.Equal("Release", RecompLinuxSetupArgs.AppImageEnvironment["CMAKE_BUILD_TYPE"]);
+    }
+
+    [Fact]
+    public void LocalBuild_NeedsRecompileWhenCodePulHashChanged()
+    {
+        var play = Path.Combine("play");
+        var retro = Path.Combine("RetroRewind", "RetroRewind6");
+        var localBuild = Path.Combine(play, RecompLinuxLocalBuild.FileName);
+        var codePul = Path.Combine(retro, "Binaries", "Code.pul");
+        var bytes = "new-code-pul"u8.ToArray();
+        var matching = RecompLinuxLocalBuild.Sha256Hex(bytes);
+
+        Assert.Equal("aaa", RecompLinuxLocalBuild.ReadCodePulSha256("""{"CodePulSha256":"aaa"}"""));
+        Assert.Null(RecompLinuxLocalBuild.ReadCodePulSha256("not-json"));
+
+        Assert.True(
+            RecompLinuxLocalBuild.NeedsRecompile(
+                play,
+                retro,
+                path => path == codePul || path == localBuild,
+                _ => """{"CodePulSha256":"old-hash"}""",
+                _ => bytes
+            )
+        );
+        Assert.False(
+            RecompLinuxLocalBuild.NeedsRecompile(
+                play,
+                retro,
+                path => path == codePul || path == localBuild,
+                _ => $$"""{"CodePulSha256":"{{matching}}"}""",
+                _ => bytes
+            )
+        );
+        Assert.True(RecompLinuxLocalBuild.NeedsRecompile(play, retro, path => path == codePul, _ => "", _ => bytes));
+        Assert.False(RecompLinuxLocalBuild.NeedsRecompile(play, retro, _ => false, _ => "", _ => bytes));
     }
 
     [Fact]
